@@ -1,0 +1,34 @@
+{
+  "name": "moyu-sentinel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "npm run assets && tsc && vite build",
+    "test": "vitest run",
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "test:glow": "node scripts/glow-smoke.mjs",
+    "test:gallery": "node scripts/gallery-sharing-smoke.mjs",
+    "assets": "node scripts/prepare-assets.mjs",
+    "tauri": "tauri",
+    "portable": "node scripts/build-portable.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  }
+}

@@ -1,0 +1,27 @@
+[package]
+name = "moyu-sentinel"
+version = "0.1.0"
+description = "Local camera person detection and transparent screen-edge alerts"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+percent-encoding = "2"
+tiny_http = "0.12"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
+if-addrs = "0.15"
+nokhwa = { version = "0.10.11", default-features = false, features = ["input-msmf"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "copy-dylibs"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+release/
+src-tauri/target/
+public/wasm/
+public/models/
+src-tauri/models/
+test-results/
+playwright-report/
+*.log
+.tools/

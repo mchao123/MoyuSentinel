@@ -1,0 +1,1 @@
+{"main-capability":{"identifier":"main-capability","description":"Local application event access","local":true,"windows":["main","glow-*","popup-*"],"permissions":["core:event:default"]}}

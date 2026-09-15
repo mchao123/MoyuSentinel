@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Local application event access",
+  "windows": ["main", "glow-*", "popup-*"],
+  "permissions": ["core:event:default"]
+}
