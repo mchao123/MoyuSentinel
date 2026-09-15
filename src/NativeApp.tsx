@@ -22,6 +22,8 @@ import {
   Users,
   X,
   Network,
+  Download,
+  Info,
 } from "lucide-react";
 import {
   defaults,
@@ -30,6 +32,7 @@ import {
   type Settings,
   hasEdge,
   hasPopup,
+  popupWindowSize,
 } from "./domain";
 import {
   hideToTray,
@@ -51,6 +54,11 @@ import {
   reminderState,
   resumeReminders,
   type ReminderState,
+  appVersion,
+  checkUpdate,
+  installUpdate,
+  type UpdateInfo,
+  type UpdateProgress,
 } from "./bridge";
 import { GlowLayer } from "./Overlay";
 import { PopupCard, popupPosition, usePopupImage } from "./Popup";
@@ -59,6 +67,7 @@ import { AdGallery } from "./AdGallery";
 import type { Caption } from "./gallery";
 import { ReminderPreview } from "./ReminderPreview";
 import { SharingPage, useSharingState, type SharedEvent } from "./Sharing";
+import { AboutPage } from "./AboutPage";
 
 interface Entry {
   id: number | string;
@@ -88,8 +97,15 @@ export function App() {
   const [snoozeUntil, setSnoozeUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [importing, setImporting] = useState(false);
-  const [page, setPage] = useState<"monitor" | "reminder" | "sharing">("monitor");
+  const [page, setPage] = useState<"monitor" | "reminder" | "sharing" | "about">("monitor");
   const sharing = useSharingState();
+  const [version, setVersion] = useState("");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateChecked, setUpdateChecked] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
   const popupImage = usePopupImage();
   const [editingImage, setEditingImage] = useState<{ id: string; caption: Caption }>();
   const editedImage = usePopupImage(editingImage?.id);
@@ -154,6 +170,22 @@ export function App() {
   }, []);
   const refreshDevices = useCallback(async () => {
     setDevices(await listCameras());
+  }, []);
+  useEffect(() => {
+    let disposed = false;
+    void appVersion()
+      .then((value) => { if (!disposed) setVersion(value); })
+      .catch(() => {});
+    if (!native) return () => { disposed = true; };
+    const progress = onEvent<UpdateProgress>("update-progress", setUpdateProgress);
+    const timer = setTimeout(() => {
+      if (!disposed) void checkForUpdate(true);
+    }, 1200);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      void progress.then((fn) => fn());
+    };
   }, []);
   useEffect(() => {
     let disposed = false;
@@ -292,6 +324,31 @@ export function App() {
       setError(message(e));
     }
   }
+  async function checkForUpdate(silent = false) {
+    if (checkingUpdate || updating) return;
+    setCheckingUpdate(true);
+    if (!silent) setError("");
+    try {
+      const value = await checkUpdate();
+      setUpdateInfo(value);
+      setUpdateChecked(true);
+    } catch (e) {
+      if (!silent) setError(`检查更新失败：${message(e)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+  async function installAvailableUpdate() {
+    setUpdating(true);
+    setUpdateProgress(null);
+    setError("");
+    try {
+      await installUpdate();
+    } catch (e) {
+      setUpdating(false);
+      setError(`更新失败：${message(e)}`);
+    }
+  }
   async function testGlow() {
     setTesting(true);
     setError("");
@@ -326,7 +383,9 @@ export function App() {
           <button role="tab" aria-selected={page === "monitor"} aria-controls="monitor-page" onClick={() => { setPage("monitor"); setSettingsTab("detection"); }}><Camera size={16} />摄像头</button>
           <button role="tab" aria-selected={page === "reminder"} aria-controls="reminder-page" onClick={() => { setPage("reminder"); setSettingsTab("reminder"); }}><Bell size={16} />提醒</button>
           <button role="tab" aria-selected={page === "sharing"} aria-controls="sharing-page" onClick={() => setPage("sharing")}><Network size={16} />共享</button>
+          <button className="nav-right" role="tab" aria-selected={page === "about"} aria-controls="about-page" onClick={() => setPage("about")}><Info size={16} />关于</button>
         </nav>
+        <div className="app-content">
         {paused && (
           <div className="snooze-banner" role="status">
             <span>
@@ -363,11 +422,41 @@ export function App() {
             </button>
           </div>
         )}
+        {updateInfo && !updateDismissed && page !== "about" && (
+          <div className="update-banner" role="status">
+            <Download size={19} />
+            <div>
+              <strong>发现新版本 v{updateInfo.version}</strong>
+              <span>{updateInfo.notes.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "建议更新到最新版本"}</span>
+            </div>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={updating}
+              onClick={() => void installAvailableUpdate()}
+            >
+              {updating
+                ? updateProgress?.total
+                  ? `下载中 ${Math.round(updateProgress.downloaded / updateProgress.total * 100)}%`
+                  : "正在准备"
+                : "下载并安装"}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="稍后提醒"
+              disabled={updating}
+              onClick={() => setUpdateDismissed(true)}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
         {!paused && sharing.state.activeSources.length > 0 && <div className="shared-alert" role="status"><Network size={16} /><span>来人提醒：{sharing.state.activeSources.join("、")}</span></div>}
         {page === "sharing" && <div id="sharing-page" role="tabpanel"><SharingPage state={sharing.state} onSave={sharing.save} onError={setError} /></div>}
-        <div className={`workspace ${page}`} id={page === "reminder" ? "reminder-page" : "monitor-page"} role="tabpanel" hidden={page === "sharing"}>
-          {page === "reminder" && <div className="reminder-page-heading"><div><Bell size={20} /><strong>来人提醒</strong></div><button className="test-button" disabled={testing || paused || importing} onClick={() => void testGlow()}><Monitor size={16} />{testing ? "提醒测试中…" : "测试提醒"}<small>3 秒</small></button></div>}
-          <section className="camera-section">
+        {page === "about" && <AboutPage version={version || "..."} update={updateInfo} checked={updateChecked} checking={checkingUpdate} updating={updating} progress={updateProgress} onCheck={() => void checkForUpdate()} onInstall={() => void installAvailableUpdate()} />}
+        <div className={`workspace ${page}`} id={page === "reminder" ? "reminder-page" : "monitor-page"} role="tabpanel" hidden={page === "sharing" || page === "about"}>
+                    <section className="camera-section">
             <div className="section-heading">
               <span className={`status-badge ${phase}`}>
                 <i />
@@ -645,9 +734,10 @@ export function App() {
               </div>
             )}
             {page === "reminder" && <div className="reminder-media">
-              <ReminderPreview settings={settings} url={editedImage.url} caption={editingImage?.caption ?? editedImage.caption} />
+              <ReminderPreview settings={settings} url={editedImage.url} caption={editingImage?.caption ?? editedImage.caption} imageSize={{ width: editedImage.width, height: editedImage.height }} actions={<button className="test-button" disabled={testing || paused || importing} onClick={() => void testGlow()}><Monitor size={16} />{testing ? "提醒测试中…" : "测试提醒"}<small>3 秒</small></button>} />
             </div>}
           </aside>
+        </div>
         </div>
       </main>
       {!native && hasEdge(settings) && (
@@ -657,7 +747,7 @@ export function App() {
         hasPopup(settings) &&
         previewGlow.active &&
         !paused && (
-          <div className="browser-popup" style={{ ...popupPosition(settings.popup), position: "fixed" }}>
+          <div className="browser-popup" style={{ ...popupPosition(settings.popup, popupWindowSize(settings.popup, popupImage)), position: "fixed" }}>
             <PopupCard
               url={popupImage.url}
               options={settings.popup}

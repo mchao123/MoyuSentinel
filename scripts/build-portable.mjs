@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, copyFile, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 
 if (process.platform !== "win32")
   throw new Error("Build the Windows portable package on Windows.");
@@ -37,4 +38,13 @@ const archive = spawnSync(
   { stdio: "inherit" },
 );
 if (archive.status !== 0) process.exit(archive.status ?? 1);
+const archivePath = "release/MoyuSentinel-windows-x64.zip";
+const digest = createHash("sha256")
+  .update(await readFile(archivePath))
+  .digest("hex");
+await writeFile(
+  `${archivePath}.sha256`,
+  `${digest}  MoyuSentinel-windows-x64.zip\n`,
+);
 console.log("Portable app: release/MoyuSentinel/MoyuSentinel.exe");
+console.log(`SHA-256: ${digest}`);

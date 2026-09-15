@@ -15,6 +15,7 @@ pub struct PopupOptions {
     pub hold_seconds: Option<f64>,
     pub width: u32,
     pub height: u32,
+    pub fit_image: bool,
     pub opacity: f64,
     pub position: String,
     pub margin: u32,
@@ -25,7 +26,7 @@ pub struct PopupOptions {
 impl Default for PopupOptions {
     fn default() -> Self {
         Self { hold_seconds: None,
-            width: 360, height: 250, opacity: 1.0, position: "bottom-right".into(), margin: 12,
+            width: 360, height: 250, fit_image: false, opacity: 1.0, position: "bottom-right".into(), margin: 12,
             font_size: 15, text_color: "#32353b".into(), background_color: "#ffffff".into() }
     }
 }
@@ -48,6 +49,27 @@ impl PopupOptions {
         let margin_y = ((self.margin as f64 * scale) as u32).min(available_height.saturating_sub((120.0 * scale) as u32) / 2);
         let width = ((self.width as f64 * scale) as u32).min(available_width.saturating_sub(2 * margin_x).max(1));
         let height = ((self.height as f64 * scale) as u32).min(available_height.saturating_sub(2 * margin_y).max(1));
+        let left = if self.position == "center" { available_width.saturating_sub(width) / 2 }
+            else if self.position.ends_with("left") { margin_x } else { available_width.saturating_sub(width + margin_x) };
+        let top = if self.position == "center" { available_height.saturating_sub(height) / 2 }
+            else if self.position.starts_with("top") { margin_y } else { available_height.saturating_sub(height + margin_y) };
+        (x + left as i32, y + top as i32, width, height)
+    }
+    fn image_geometry(&self, area: (i32, i32, u32, u32), scale: f64, image_width: u32, image_height: u32) -> (i32, i32, u32, u32) {
+        let (x, y, available_width, available_height) = area;
+        let image_scale = (self.width as f64 / image_width as f64)
+            .min(self.height as f64 / image_height as f64);
+        let mut width = (image_width as f64 * image_scale * scale).round().max(1.0) as u32;
+        let mut height = (image_height as f64 * image_scale * scale).round().max(1.0) as u32;
+        let margin_x = ((self.margin as f64 * scale) as u32).min(available_width.saturating_sub(1) / 2);
+        let margin_y = ((self.margin as f64 * scale) as u32).min(available_height.saturating_sub(1) / 2);
+        let max_width = available_width.saturating_sub(2 * margin_x).max(1);
+        let max_height = available_height.saturating_sub(2 * margin_y).max(1);
+        if width > max_width || height > max_height {
+            let shrink = (max_width as f64 / width as f64).min(max_height as f64 / height as f64);
+            width = (width as f64 * shrink).round().max(1.0) as u32;
+            height = (height as f64 * shrink).round().max(1.0) as u32;
+        }
         let left = if self.position == "center" { available_width.saturating_sub(width) / 2 }
             else if self.position.ends_with("left") { margin_x } else { available_width.saturating_sub(width + margin_x) };
         let top = if self.position == "center" { available_height.saturating_sub(height) / 2 }
@@ -209,8 +231,18 @@ pub fn place_popup(popup: &WebviewWindow) -> Result<(), String> {
         .ok_or("Popup monitor is unavailable")?;
     let area = monitor.work_area();
     let scale = monitor.scale_factor();
-    let options = popup.app_handle().state::<Runtime>().monitor.settings().popup;
-    let (x, y, width, height) = options.geometry((area.position.x, area.position.y, area.size.width, area.size.height), scale);
+    let state = popup.app_handle().state::<Runtime>();
+    let options = state.monitor.settings().popup;
+    let image_size = if options.fit_image {
+        *state.popup_image_size.lock().map_err(|e| e.to_string())?
+    } else {
+        None
+    };
+    let monitor_area = (area.position.x, area.position.y, area.size.width, area.size.height);
+    let (x, y, width, height) = match image_size {
+        Some((image_width, image_height)) if image_width > 0 && image_height > 0 => options.image_geometry(monitor_area, scale, image_width, image_height),
+        _ => options.geometry(monitor_area, scale),
+    };
     popup
         .set_position(PhysicalPosition::new(
             x,
@@ -220,6 +252,70 @@ pub fn place_popup(popup: &WebviewWindow) -> Result<(), String> {
     popup
         .set_size(PhysicalSize::new(width, height))
         .map_err(|e| e.to_string())
+}
+
+pub fn show_popup(popup: &WebviewWindow) -> Result<(), String> {
+    place_popup(popup)?;
+    popup.show().map_err(|e| e.to_string())?;
+    if popup.is_minimized().unwrap_or(false) {
+        popup.unminimize().map_err(|e| e.to_string())?;
+    }
+    reinforce_popup_z_order(popup)
+}
+
+#[cfg(windows)]
+pub fn reinforce_popup_z_order(popup: &WebviewWindow) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOMOVE,
+        SWP_NOOWNERZORDER, SWP_NOSIZE,
+    };
+
+    let hwnd = popup.hwnd().map_err(|e| e.to_string())?.0;
+    // Tauri only applies the topmost flag when it changes. Reissue the native
+    // z-order update so an existing topmost popup cannot remain behind another.
+    let result = unsafe {
+        SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_ASYNCWINDOWPOS
+                | SWP_NOACTIVATE
+                | SWP_NOMOVE
+                | SWP_NOOWNERZORDER
+                | SWP_NOSIZE,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error().to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+pub fn reinforce_popup_z_order(_popup: &WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_popup_image_size(window: WebviewWindow, image_width: u32, image_height: u32) -> Result<(), String> {
+    if !window.label().starts_with("popup-") {
+        return Err("Command is restricted to the popup".into());
+    }
+    if image_width == 0 || image_height == 0 || image_width > 32768 || image_height > 32768 {
+        return Err("Invalid image dimensions".into());
+    }
+    let app = window.app_handle().clone();
+    *app.state::<Runtime>().popup_image_size.lock().map_err(|e| e.to_string())? = Some((image_width, image_height));
+    for (label, popup) in app.webview_windows() {
+        if label.starts_with("popup-") {
+            place_popup(&popup)?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -299,6 +395,7 @@ mod tests {
         let legacy = legacy.validated();
         assert!(legacy.has_popup() && !legacy.has_edge());
         assert_eq!(legacy.popup.width, 360);
+        assert!(!legacy.popup.fit_image);
         assert_eq!(legacy.popup.hold_seconds, Some(3.0));
         assert!(!legacy.actions.open_url && !legacy.actions.focus_window);
         let mixed: crate::detection::Settings = serde_json::from_str(r##"{"alertMode":"mixed","popup":{"content":"text","width":5000,"height":1,"opacity":9,"position":"bad","textColor":"bad"}}"##).unwrap();
@@ -325,6 +422,13 @@ mod tests {
             assert!(x >= 0 && y >= 0 && x as u32 + width <= 200 && y as u32 + height <= 100);
             assert_eq!((width, height), (200, 100));
         }
+    }
+    #[test]
+    fn popup_follows_image_aspect_ratio_within_limits() {
+        let options = PopupOptions { fit_image: true, width: 300, height: 300, ..Default::default() };
+        assert_eq!(options.image_geometry((0, 0, 1000, 1000), 1.0, 400, 200), (688, 838, 300, 150));
+        assert_eq!(options.image_geometry((0, 0, 1000, 1000), 1.0, 200, 400), (838, 688, 150, 300));
+        assert_eq!(options.image_geometry((0, 0, 100, 100), 1.0, 400, 200), (12, 50, 76, 38));
     }
     #[test]
     fn dismissal_expires_and_can_be_resumed() {

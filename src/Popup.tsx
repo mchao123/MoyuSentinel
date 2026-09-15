@@ -6,12 +6,12 @@ import defaultAd from "./assets/default-ad.jpg";
 import { normalizeSettings, popupDefaults, type PopupOptions } from "./domain";
 import { defaultCaption, popupImageState, type Caption } from "./gallery";
 
-export function popupPosition(options: PopupOptions): CSSProperties {
+export function popupPosition(options: PopupOptions, size = { width: options.width, height: options.height }): CSSProperties {
   const center = options.position === "center";
   const marginX = `min(${options.margin}px, max(0px, calc((100% - 180px) / 2)))`;
   const marginY = `min(${options.margin}px, max(0px, calc((100% - 120px) / 2)))`;
   return {
-    position: "absolute", width: options.width, height: options.height,
+    position: "absolute", width: size.width, height: size.height,
     maxWidth: `max(min(100%, 180px), calc(100% - ${options.margin * 2}px))`, maxHeight: `max(min(100%, 120px), calc(100% - ${options.margin * 2}px))`,
     left: center ? "50%" : options.position.endsWith("left") ? marginX : "auto",
     right: !center && options.position.endsWith("right") ? marginX : "auto",
@@ -26,6 +26,7 @@ export function usePopupImage(id?: string) {
   const [error, setError] = useState("");
   const [imageRevision, setImageRevision] = useState(-1);
   const [caption, setCaption] = useState<Caption>(defaultCaption);
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   useEffect(() => {
     let disposed = false;
     let current = "";
@@ -48,6 +49,7 @@ export function usePopupImage(id?: string) {
         setUrl(next);
         setImageRevision(readyRevision);
         setCaption(metadata.caption);
+        setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
         setError("");
       } catch {
         if (next) URL.revokeObjectURL(next);
@@ -69,7 +71,7 @@ export function usePopupImage(id?: string) {
       window.removeEventListener("popup-image-changed", changed);
     };
   }, [id]);
-  return { url, error, caption, revision: imageRevision };
+  return { url, error, caption, revision: imageRevision, width: dimensions.width, height: dimensions.height };
 }
 
 export function PopupCard({
@@ -80,6 +82,7 @@ export function PopupCard({
   preview = false,
   options = popupDefaults,
   caption = defaultCaption,
+  onImageSize,
 }: {
   url: string;
   onClose?: () => void;
@@ -88,6 +91,7 @@ export function PopupCard({
   preview?: boolean;
   options?: PopupOptions;
   caption?: Caption;
+  onImageSize?: (width: number, height: number) => void;
 }) {
   return (
     <div className={`popup-card ${url ? "custom" : "default-ad"}`}>
@@ -95,6 +99,7 @@ export function PopupCard({
       <div className="popup-image">
       <img
         src={url || defaultAd}
+        onLoad={(event) => onImageSize?.(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)}
         alt={url ? "自定义提醒图片" : "耳机限时推荐"}
       />
       {(caption.title.trim() || caption.text.trim()) && (
@@ -140,9 +145,14 @@ export function Popup() {
   }, []);
   useEffect(() => {
     if (native && options && image.revision >= 0 && !image.error) {
-      void invoke("popup_ready", { revision: image.revision });
+      void (async () => {
+        if (options.fitImage && image.width > 0 && image.height > 0) {
+          await invoke("set_popup_image_size", { imageWidth: image.width, imageHeight: image.height }).catch(() => {});
+        }
+        await invoke("popup_ready", { revision: image.revision });
+      })().catch(() => {});
     }
-  }, [image.revision, image.error, image.url, options]);
+  }, [image.revision, image.error, image.url, image.width, image.height, options]);
   const [error, setError] = useState("");
   const [closing, setClosing] = useState(false);
   const close = async () => {

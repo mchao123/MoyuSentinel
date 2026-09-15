@@ -3,6 +3,7 @@ export interface PopupOptions {
   holdSeconds: number;
   width: number;
   height: number;
+  fitImage: boolean;
   opacity: number;
   position: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "center";
   margin: number;
@@ -19,7 +20,7 @@ export interface AlertActions {
   windowTitle: string;
 }
 export const popupDefaults: PopupOptions = {
-  holdSeconds: 3, width: 360, height: 250,
+  holdSeconds: 3, width: 360, height: 250, fitImage: false,
   opacity: 1, position: "bottom-right", margin: 12, fontSize: 15,
   textColor: "#32353b", backgroundColor: "#ffffff",
 };
@@ -127,10 +128,21 @@ function normalizePopup(value: unknown, legacyHold: number): PopupOptions {
   return {
     holdSeconds: v.holdSeconds === undefined ? legacyHold : bounded("holdSeconds", 1, 10),
     width: Math.round(bounded("width", 180, 1200)), height: Math.round(bounded("height", 120, 900)),
+    fitImage: v.fitImage === true,
     opacity: bounded("opacity", 0.2, 1), margin: Math.round(bounded("margin", 0, 200)),
     fontSize: Math.round(bounded("fontSize", 12, 48)),
     position: ["top-left", "top-right", "bottom-left", "bottom-right", "center"].includes(v.position ?? "") ? v.position! : "bottom-right",
     textColor: color(v.textColor, popupDefaults.textColor), backgroundColor: color(v.backgroundColor, popupDefaults.backgroundColor),
+  };
+}
+export function popupWindowSize(options: PopupOptions, image?: { width: number; height: number }) {
+  if (!options.fitImage || !image || image.width <= 0 || image.height <= 0) {
+    return { width: options.width, height: options.height };
+  }
+  const scale = Math.min(options.width / image.width, options.height / image.height);
+  return {
+    width: Math.max(1, Math.round(image.width * scale)),
+    height: Math.max(1, Math.round(image.height * scale)),
   };
 }
 function normalizeActions(value: unknown): AlertActions {

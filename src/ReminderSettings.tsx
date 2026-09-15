@@ -53,6 +53,7 @@ export function ReminderSettings({ settings, update, onError, paused, gallery }:
         <Numeric label="弹窗宽度" value={popup.width} min={180} max={1200} onChange={(v) => setPopup("width", v)} />
         <Numeric label="弹窗高度" value={popup.height} min={120} max={900} onChange={(v) => setPopup("height", v)} />
       </div>
+      <label className="action-toggle" title="开启后窗口会在当前宽高范围内按图片真实比例缩放"><input type="checkbox" checked={popup.fitImage} onChange={(e) => setPopup("fitImage", e.target.checked)} />窗口尺寸跟随图片比例</label>
       <label className="editor-field">弹窗位置<select aria-label="弹窗位置" value={popup.position} onChange={(e) => setPopup("position", e.target.value as PopupOptions["position"])}>
         <option value="top-left">左上角</option><option value="top-right">右上角</option><option value="bottom-left">左下角</option><option value="bottom-right">右下角</option><option value="center">居中</option>
       </select></label>

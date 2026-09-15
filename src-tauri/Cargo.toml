@@ -1,6 +1,6 @@
 [package]
 name = "moyu-sentinel"
-version = "1.0.0"
+version = "1.0.1"
 description = "Local camera person detection and transparent screen-edge alerts"
 edition = "2021"
 
@@ -14,8 +14,11 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 percent-encoding = "2"
 tiny_http = "0.12"
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls", "system-proxy"] }
 if-addrs = "0.15"
+semver = "1"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 nokhwa = { version = "0.10.11", default-features = false, features = ["input-msmf"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "download-binaries", "copy-dylibs"] }

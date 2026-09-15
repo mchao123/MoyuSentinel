@@ -126,6 +126,16 @@ try {
     for (let i = 0; i < actual.length; i++) difference += Math.abs(actual[i] - expected[i]);
     assert(difference / actual.length < 8, `Preview must match popup pixels: ${difference / actual.length}`);
   }
+  const fitToggle = page.locator(".reminder-fields .action-toggle input[type=checkbox]").first();
+  assert.equal(await fitToggle.isChecked(), false, "Image-ratio sizing must default off");
+  await fitToggle.check();
+  await page.waitForTimeout(250);
+  const fitted = await page.locator(".preview-window").boundingBox();
+  assert(Math.abs(fitted.width / fitted.height - 120 / 250) < 0.01, "Enabled popup sizing must follow the image ratio");
+  await fitToggle.uncheck();
+  await page.waitForTimeout(250);
+  const restored = await page.locator(".preview-window").boundingBox();
+  assert(Math.abs(restored.width / restored.height - 360 / 250) < 0.01, "Disabling image-ratio sizing must restore configured dimensions");
   assert.deepEqual(errors, []);
   console.log("PASS: exact popup and screen ratios, real popup pixel comparison, live edge settings, stable modes, short-list scroll pass-through, 32-image scrolling with editor handoff at both boundaries, fixed preview, and visible test button at five viewport sizes including full screen.");
 } finally { await browser.close(); }

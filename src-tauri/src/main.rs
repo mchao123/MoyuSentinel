@@ -4,6 +4,7 @@ mod detection;
 mod monitor;
 mod reminders;
 mod ads;
+mod updater;
 mod sharing;
 mod automation;
 
@@ -66,7 +67,7 @@ impl Alert {
     }
 }
 
-type MonitorGeometry = (i32, i32, u32, u32);
+type MonitorGeometry = (i32, i32, u32, u32, u64);
 struct Runtime {
     alert: Mutex<Alert>,
     monitors: Mutex<Vec<MonitorGeometry>>,
@@ -77,8 +78,11 @@ struct Runtime {
     exiting: AtomicBool,
     ads: Mutex<ads::Library>,
     sharing: sharing::Sharing,
+    updater: updater::Updater,
     popup_revision: AtomicU64,
     popup_ready: Mutex<HashMap<String, u64>>,
+    popup_image_size: Mutex<Option<(u32, u32)>>,
+    display_changed: AtomicBool,
 }
 
 #[tauri::command]
@@ -204,6 +208,7 @@ fn create_overlays(app: &tauri::AppHandle) -> Result<(), String> {
                 m.position().y,
                 m.size().width,
                 m.size().height,
+                m.scale_factor().to_bits(),
             )
         })
         .collect();
@@ -342,8 +347,11 @@ fn main() {
                 exiting: AtomicBool::new(false),
                 ads: Mutex::new(ads::Library::load(&data_dir)?),
                 sharing: sharing::Sharing::load(&data_dir)?,
+                updater: updater::Updater::default(),
                 popup_revision: AtomicU64::new(0),
                 popup_ready: Mutex::new(HashMap::new()),
+                popup_image_size: Mutex::new(None),
+                display_changed: AtomicBool::new(false),
             });
             let main = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Moyu Sentinel - 来人提醒")
@@ -363,11 +371,15 @@ fn main() {
             }
             sharing::start(app.handle().clone());
             let handle = app.handle().clone();
-            main.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            main.on_window_event(move |event| match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     if let Some(window) = handle.get_webview_window("main") { let _ = window.hide(); }
                 }
+                tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    handle.state::<Runtime>().display_changed.store(true, Ordering::Relaxed);
+                }
+                _ => {}
             });
             let show = MenuItem::with_id(app, "show", "打开控制台", true, None::<&str>)?;
             let monitor_action = MenuItem::with_id(app, "toggle-monitoring", "开始检测", true, None::<&str>)?;
@@ -408,6 +420,7 @@ fn main() {
               let mut previous_glow = None;
               let mut glow_transition = GlowTransition::default();
               let mut previous_monitor_action = "";
+              let mut next_monitor_check = Instant::now();
               let mut previous_popup_active = false;
               let mut previous_popup_event = (0, 0);
               let mut action_gate = automation::ActionGate::default();
@@ -426,6 +439,30 @@ fn main() {
                     if monitor_action.set_text(action_text).is_ok() { previous_monitor_action = action_text; }
                 }
                 let settings = state.monitor.settings();
+                // Refresh immediately after a display event, with a slow fallback for
+                // topology changes that do not produce a scale-factor event.
+                let overlays_exist = state.monitors.lock().map(|monitors| !monitors.is_empty()).unwrap_or(false);
+                let now = Instant::now();
+                let display_changed = state.display_changed.swap(false, Ordering::Relaxed);
+                if (display_changed || now >= next_monitor_check) && (settings.has_edge() || overlays_exist) {
+                    next_monitor_check = now + Duration::from_secs(10);
+                    let geometry = handle.get_webview_window("main").and_then(|main| main.available_monitors().ok()).map(|monitors| {
+                        monitors.iter().map(|monitor| (
+                            monitor.position().x, monitor.position().y,
+                            monitor.size().width, monitor.size().height,
+                            monitor.scale_factor().to_bits(),
+                        )).collect::<Vec<MonitorGeometry>>()
+                    }).unwrap_or_default();
+                    let changed = !geometry.is_empty() && state.monitors.lock().map(|monitors| *monitors != geometry).unwrap_or(false);
+                    if changed {
+                        let app = handle.clone();
+                        let _ = handle.run_on_main_thread(move || {
+                            if let Err(error) = create_overlays(&app) {
+                                let _ = app.emit_to("main", "monitor-error", error);
+                            }
+                        });
+                    }
+                }
                 // A reminder is a notification event, independent of whether its
                 // source is the local camera or a remote shared device.
                 let local_alert = match state.alert.lock() {
@@ -474,8 +511,12 @@ fn main() {
                 for (label, window) in handle.webview_windows() {
                     if label.starts_with("popup-") {
                         let ready = state.popup_ready.lock().unwrap().get(&label).copied() == Some(state.popup_revision.load(Ordering::Relaxed));
-                        if popup_active && ready && !window.is_visible().unwrap_or(false) {
-                            if reminders::place_popup(&window).is_ok() { let _ = window.show(); }
+                        if popup_active && ready {
+                            if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+                                let _ = reminders::show_popup(&window);
+                            } else {
+                                let _ = reminders::reinforce_popup_z_order(&window);
+                            }
                         } else if !popup_active && window.is_visible().unwrap_or(false) { let _ = window.hide(); }
                         continue;
                     }
@@ -494,7 +535,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_alert, overlay_state, prepare_overlays, load_settings, save_settings, hide_to_tray, list_cameras, start_monitoring, stop_monitoring, monitor_state, preview_frame, reminders::reminder_state, reminders::dismiss_popup, reminders::resume_reminders, reminders::popup_image, reminders::popup_settings, reminders::import_popup_image, reminders::reset_popup_image, ads::popup_gallery, ads::gallery_image, ads::add_popup_image, ads::remove_popup_image, ads::reorder_popup_images, ads::popup_image_revision, ads::popup_ready, ads::popup_image_state, ads::update_image_caption, sharing::sharing_state, sharing::save_sharing, automation::list_target_windows, automation::test_actions])
+        .invoke_handler(tauri::generate_handler![set_alert, overlay_state, prepare_overlays, load_settings, save_settings, hide_to_tray, list_cameras, start_monitoring, stop_monitoring, monitor_state, preview_frame, reminders::reminder_state, reminders::dismiss_popup, reminders::resume_reminders, reminders::popup_image, reminders::set_popup_image_size, reminders::popup_settings, updater::app_version, updater::check_update, updater::install_update, reminders::import_popup_image, reminders::reset_popup_image, ads::popup_gallery, ads::gallery_image, ads::add_popup_image, ads::remove_popup_image, ads::reorder_popup_images, ads::popup_image_revision, ads::popup_ready, ads::popup_image_state, ads::update_image_caption, sharing::sharing_state, sharing::save_sharing, automation::list_target_windows, automation::test_actions])
         .run(tauri::generate_context!())
         .expect("Failed to start Moyu Sentinel. Put the portable app in a writable folder and ensure Microsoft Edge WebView2 is installed.");
 }

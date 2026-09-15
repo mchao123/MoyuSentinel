@@ -68,7 +68,7 @@ npm run portable
 
 仓库包含 `.github/workflows/windows.yml`，仅推送 `v*` 版本 tag 时打包并发布 GitHub Release，普通分支推送和 PR 不触发打包。发布前统一 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 和 `src-tauri/Cargo.lock` 的版本，并添加对应的 `docs/releases/v版本号.md`。工作流会检查 tag 与版本一致，测试和构建成功后上传 Windows 便携包并发布；带 `-` 后缀的版本标记为预发布。
 
-正式版 1.0.0 的发布 tag 为 `v1.0.0`。推送版本提交后执行 `git tag -a v1.0.0 -m "Release 1.0.0"`、`git push origin v1.0.0`，可从 [GitHub Releases](https://github.com/mchao123/MoyuSentinel/releases) 下载发布包。
+正式版 1.0.1 的发布 tag 为 `v1.0.1`。推送版本提交后执行 `git tag -a v1.0.1 -m "Release 1.0.1"`、`git push origin v1.0.1`，可从 [GitHub Releases](https://github.com/mchao123/MoyuSentinel/releases) 下载发布包。
 
 原生回归测试（Windows）：以 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` 启动编译后的程序，再运行 `node scripts/native-smoke.mjs`。该测试验证桌面红光像素、双屏物理尺寸、鼠标穿透窗口属性、不抢焦点、提醒超时、本机摄像头、JPEG 预览、低频推理和托盘后台检测；真实摄像头画面不落盘。仅测试时开启调试端口；正常运行不需要该环境变量。
 

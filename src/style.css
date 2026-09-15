@@ -25,6 +25,7 @@
   padding: 0 2px 8px;
 }
 .app-nav button[aria-selected="true"] { color: #303941; border-color: #e65063; }
+.app-nav button.nav-right { margin-left: auto; }
 .ad-gallery { display: grid; grid-template-rows: 36px 36px minmax(0, 1fr); gap: 10px; min-height: 0; height: 300px; }
 .gallery-mode { display: flex; align-items: center; gap: 12px; color: #69727e; font-size: 12px; }
 .gallery-mode select { flex: 1; }
@@ -114,13 +115,14 @@ main {
 }
 .workspace.reminder { display: flex; flex-direction: column; overflow: hidden; gap: 0; }
 .app-shell:has(.workspace.reminder) > main { width: 100%; }
-.reminder-page-heading { width: 100%; margin: 0 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e1e5ea; padding-bottom: 15px; flex-shrink: 0; }
-.reminder-page-heading > div { display: flex; align-items: center; gap: 9px; color: #303941; }
-.reminder-page-heading strong { font-size: 18px; font-weight: 600; }
-.reminder-page-heading svg { color: #c18b2c; }
-.reminder-page-heading > span { color: #7b8490; font-size: 12px; min-width: 0; }
-.reminder-page-heading .test-button { width: auto; min-width: 150px; height: 36px; margin-left: auto; flex-shrink: 0; }
-.reminder-page-heading .test-button small { font-size: 11px; color: #a87781; }
+.app-shell:has(.workspace.reminder) .app-content { overflow: hidden; scrollbar-gutter: auto; }
+.app-content > .workspace.reminder { flex: 1 1 auto; overflow: hidden; }
+.app-shell { height: 100dvh; overflow: hidden; }
+.app-shell > main { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.app-nav { flex-shrink: 0; }
+.app-content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.app-content > .workspace, .app-content > #sharing-page, .app-content > #about-page { flex: 1 0 auto; min-height: 0; }
+.app-content > #sharing-page { overflow: visible; }
 .workspace.reminder .camera-section { display: none; }
 .workspace.reminder .settings-section {
   width: 100%;
@@ -139,8 +141,11 @@ main {
 .workspace.reminder .mode-switch { height: 36px; }
 .reminder-media { grid-column: 1; grid-row: 1; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }
 .reminder-preview-stage { min-width: 0; min-height: 0; padding: 1px; }
-.reminder-preview { display: grid; grid-template-rows: 30px minmax(0, 1fr); gap: 10px; min-width: 0; min-height: 0; }
-.preview-toolbar { display: flex; gap: 14px; }
+.reminder-preview { display: grid; grid-template-rows: 36px minmax(0, 1fr); gap: 8px; min-width: 0; min-height: 0; }
+.reminder-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.preview-toolbar { display: flex; gap: 14px; flex-shrink: 0; }
+.reminder-preview-actions { display: flex; align-items: center; margin-left: auto; min-width: 0; }
+.reminder-preview-actions .test-button { width: auto; min-width: 150px; height: 32px; padding: 0 10px; font-size: 12px; }
 .preview-toolbar button { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #737c87; padding: 0 2px; font-size: 12px; }
 .preview-toolbar button[aria-pressed="true"] { border-bottom-color: #2c8b72; color: #303941; }
 .reminder-toggles { display: flex; flex-wrap: wrap; gap: 4px 16px; }
@@ -676,6 +681,63 @@ select {
 .error-banner .icon-button {
   margin-left: auto;
 }
+.update-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: #edf7f3;
+  color: #276b59;
+  border: 1px solid #b9dfd2;
+  padding: 9px 10px;
+  border-radius: 4px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.update-banner > svg { flex-shrink: 0; }
+.update-banner > div { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.update-banner strong { font-size: 13px; }
+.update-banner span { color: #647b73; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-banner .primary-button { height: 30px; padding: 0 12px; flex-shrink: 0; }
+.update-banner .icon-button { flex-shrink: 0; }
+.about-page { display: grid; gap: 20px; width: 100%; max-width: 860px; margin: 0 auto; align-content: start; }
+.about-hero { position: relative; overflow: hidden; display: flex; align-items: center; gap: 18px; padding: 30px; border: 1px solid #235b4c33; border-radius: 14px; color: white; background: radial-gradient(circle at 85% 15%, #58b79a66, transparent 31%), linear-gradient(135deg, #183d34, #286f5d 62%, #2c8b72); box-shadow: 0 16px 34px #183d3424; }
+.about-hero::after { content: ""; position: absolute; width: 190px; height: 190px; right: -62px; bottom: -108px; border: 1px solid #ffffff24; border-radius: 50%; box-shadow: 0 0 0 30px #ffffff08, 0 0 0 60px #ffffff06; }
+.about-hero > * { position: relative; z-index: 1; }
+.about-logo { display: grid; place-items: center; width: 62px; height: 62px; border: 1px solid #ffffff36; border-radius: 17px; background: #ffffff1c; color: white; backdrop-filter: blur(8px); flex-shrink: 0; }
+.about-hero h1 { margin: 0 0 6px; font-size: 25px; line-height: 1.1; letter-spacing: -.5px; }
+.about-hero p { margin: 0; color: #d7eee7; line-height: 1.6; }
+.about-kicker { display: block; margin-bottom: 7px; color: #a9d9ca; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.about-version { margin-left: auto; padding: 6px 11px; border: 1px solid #ffffff2e; border-radius: 999px; background: #ffffff18; color: #e7f7f1; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.about-card { padding: 22px; border: 1px solid #e2e8e6; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px #20362f0a; }
+.about-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 13px; }
+.about-section-heading > div { display: flex; align-items: center; gap: 9px; }
+.about-section-heading strong { font-size: 15px; }
+.about-section-heading svg { color: #2c8b72; }
+.about-status { padding: 5px 9px; border-radius: 999px; background: #f0f3f2; color: #6f7975; font-size: 11px; font-weight: 600; }
+.about-status.available { background: #e6f6ef; color: #23745c; }
+.about-status.busy, .about-status.checking { background: #fff5df; color: #9a6b12; }
+.about-status.current { background: #e8f1fb; color: #356b9e; }
+.about-description { margin: 0; color: #6d7883; line-height: 1.75; }
+.about-update-version { display: grid; gap: 4px; margin-top: 15px; padding: 13px 14px; border: 1px solid #dce9e4; border-radius: 8px; background: #f6faf8; }
+.about-update-version span { color: #6c7a74; font-size: 12px; }
+.about-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.about-tags span { padding: 4px 8px; border-radius: 4px; background: #f0f3f2; color: #68736e; font-size: 11px; }
+.about-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.about-actions button { min-width: 136px; height: 34px; }
+.author-card { background: linear-gradient(145deg, #fff, #f9fbfa); }
+.author-profile { display: flex; align-items: center; gap: 13px; margin-bottom: 13px; }
+.author-avatar { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; background: linear-gradient(135deg, #303941, #596773); color: white; font-size: 16px; font-weight: 700; box-shadow: 0 7px 16px #30394120; }
+.author-profile > div:last-child { display: grid; gap: 3px; }
+.author-profile strong { font-size: 15px; }
+.author-profile span { color: #7d8791; font-size: 12px; }
+.author-link { display: flex; align-items: center; gap: 8px; width: fit-content; margin-top: 15px; padding: 8px 11px; border: 1px solid #e2e7eb; border-radius: 7px; background: #f4f6f8; color: #414b56; }
+.author-link code { user-select: text; }
+@media (max-width: 620px) {
+  .about-hero { align-items: flex-start; flex-wrap: wrap; padding: 22px; }
+  .about-version { margin-left: 0; }
+  .about-section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+}
 .person-box {
   position: absolute;
   border: 2px solid #ef6b7b;
@@ -801,7 +863,6 @@ select {
     flex: 1;
   }
   .workspace.reminder .settings-section { gap: 20px; }
-  .reminder-page-heading > span { display: none; }
 }
 @media (max-width: 620px) {
   .app-shell:has(.workspace.reminder) > main { height: 100dvh; display: flex; flex-direction: column; }
@@ -810,11 +871,9 @@ select {
   .workspace.reminder .settings-section { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, .6fr) minmax(0, 1fr); gap: 16px; }
   .workspace.reminder .settings-group { grid-column: 1; grid-row: 2; gap: 12px; border-left: 0; border-top: 1px solid #e1e5ea; padding: 12px 0 0; }
   .reminder-media { grid-column: 1; grid-row: 1; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .reminder-page-heading { gap: 8px; margin-bottom: 14px; }
-  .reminder-page-heading strong { font-size: 15px; }
-  .reminder-page-heading .test-button { min-width: 0; padding: 0 8px; }
-  .reminder-page-heading .test-button small { display: none; }
   .ad-gallery { gap: 8px; }
+  .reminder-preview-actions .test-button { min-width: 0; padding: 0 7px; }
+  .reminder-preview-actions .test-button small { display: none; }
   .gallery-mode { gap: 6px; }
   .sharing-form-grid { grid-template-columns: minmax(0, 1fr); }
   .sharing-peer-actions { width: 100%; justify-content: space-between; flex-wrap: wrap; }

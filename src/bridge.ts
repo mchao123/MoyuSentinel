@@ -97,6 +97,20 @@ export async function saveSettings(settings: Settings) {
 export async function prepareOverlays() {
   if (native) await invoke("prepare_overlays");
 }
+export const appVersion = (): Promise<string> =>
+  native ? invoke("app_version") : Promise.resolve("browser");
+export interface UpdateInfo {
+  currentVersion: string;
+  version: string;
+  notes: string;
+  publishedAt: string;
+}
+export interface UpdateProgress { downloaded: number; total: number }
+export const checkUpdate = (): Promise<UpdateInfo | null> =>
+  native ? invoke("check_update") : Promise.resolve(null);
+export const installUpdate = async () => {
+  if (native) await invoke("install_update");
+};
 export interface WindowTarget { title: string; process: string }
 export async function listTargetWindows(): Promise<WindowTarget[]> {
   if (!native) throw new Error("应用窗口列表需要 Windows 桌面程序");

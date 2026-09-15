@@ -143,6 +143,10 @@ try {
     ),
     true,
   );
+  await page.locator(".app-nav [role=tab]").nth(3).click();
+  await page.locator("#about-page").waitFor();
+  assert.equal(await page.locator("#about-page .about-version").textContent(), "vbrowser");
+  assert((await page.locator("#about-page").textContent()).includes("mchao123"));
   assert.deepEqual(errors, []);
   console.log(
     "PASS: desktop/mobile control layout, red glow preview, persisted detection frequency, and browser-mode error handling.",

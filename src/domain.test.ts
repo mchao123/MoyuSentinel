@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { defaults, hasEdge, hasPopup, normalizeSettings, regionBounds, validWebUrl, withReminder } from "./domain";
+import { defaults, hasEdge, hasPopup, normalizeSettings, popupWindowSize, regionBounds, validWebUrl, withReminder } from "./domain";
 
 it("migrates saved settings to low-frequency native detection", () => {
   expect(normalizeSettings({ minPeople: 2, confidence: 0.6 })).toMatchObject({
@@ -32,6 +32,13 @@ it("normalizes custom popup limits and leaves automatic actions opt-in", () => {
   });
   expect(normalizeSettings({}).actions).toMatchObject({ openUrl: false, focusWindow: false });
   expect(normalizeSettings({ actions: { openUrl: "true", focusWindow: true, windowTitle: " Report " } }).actions).toMatchObject({ openUrl: false, focusWindow: true, windowTitle: "Report" });
+});
+it("fits popup windows to the image ratio only when enabled", () => {
+  const options = { ...defaults.popup, width: 360, height: 250 };
+  expect(popupWindowSize(options, { width: 4000, height: 2000 })).toEqual({ width: 360, height: 250 });
+  const fitted = { ...options, fitImage: true };
+  expect(popupWindowSize(fitted, { width: 4000, height: 2000 })).toEqual({ width: 360, height: 180 });
+  expect(popupWindowSize(fitted, { width: 1000, height: 4000 })).toEqual({ width: 63, height: 250 });
 });
 it("accepts web addresses without allowing local programs or script URLs", () => {
   expect(validWebUrl("https://example.com/?q=a&b=2")).toBe(true);
