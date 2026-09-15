@@ -1,7 +1,14 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
-export interface AdImage { id: string; name: string }
-export interface Gallery { items: AdImage[]; selectedId: string | null }
+export interface Caption { title: string; text: string }
+export const defaultCaption: Caption = { title: "好声音，随时随地", text: "今日好物推荐" };
+export const emptyCaption: Caption = { title: "", text: "" };
+export interface AdImage { id: string; name: string; caption: Caption }
+export interface Gallery { items: AdImage[]; selectedId: string | null; defaultCaption: Caption }
+export function normalizeCaption(value: unknown): Caption {
+  const v = value && typeof value === "object" ? value as Partial<Caption> : {};
+  return { title: typeof v.title === "string" ? [...v.title].slice(0, 80).join("") : "", text: typeof v.text === "string" ? [...v.text].slice(0, 1000).join("") : "" };
+}
 const key = "moyu-gallery";
 const native = isTauri();
 const changed = () => window.dispatchEvent(new Event("popup-image-changed"));
@@ -29,22 +36,38 @@ async function imageRecord(id: string, value?: { original: Blob; thumbnail: Blob
 export async function popupGallery(): Promise<Gallery> {
   if (native) return invoke("popup_gallery");
   const saved = localStorage.getItem(key);
-  if (saved) return JSON.parse(saved);
+  if (saved) {
+    const gallery = JSON.parse(saved) as Gallery;
+    const normalized = { ...gallery, items: gallery.items.map((item) => ({ ...item, caption: normalizeCaption(item.caption) })), defaultCaption: gallery.defaultCaption ? normalizeCaption(gallery.defaultCaption) : defaultCaption };
+    if (!gallery.defaultCaption) {
+      const previous = JSON.parse(localStorage.getItem("moyu-settings") ?? "null")?.popup;
+      if (["mixed", "text"].includes(previous?.content)) {
+        const item = normalized.items.find((item) => item.id === normalized.selectedId) ?? normalized.items[0];
+        if (item) item.caption = normalizeCaption(previous);
+        else normalized.defaultCaption = normalizeCaption(previous);
+      }
+      localStorage.setItem(key, JSON.stringify(normalized));
+    }
+    return normalized;
+  }
   const legacy = localStorage.getItem("moyu-popup-image");
   if (legacy) {
     const original = await (await fetch(legacy)).blob();
     const id = crypto.randomUUID();
     await imageRecord(id, { original, thumbnail: original });
-    const gallery = { items: [{ id, name: "原有图片" }], selectedId: null };
+    const gallery = { items: [{ id, name: "原有图片", caption: emptyCaption }], selectedId: null, defaultCaption };
     localStorage.setItem(key, JSON.stringify(gallery));
     localStorage.removeItem("moyu-popup-image");
     return gallery;
   }
-  return { items: [], selectedId: null };
+  const previous = JSON.parse(localStorage.getItem("moyu-settings") ?? "null")?.popup;
+  const initial = { items: [], selectedId: null, defaultCaption: ["mixed", "text"].includes(previous?.content) ? normalizeCaption(previous) : defaultCaption };
+  localStorage.setItem(key, JSON.stringify(initial));
+  return initial;
 }
-export async function currentGalleryImage(): Promise<Blob | null> {
+export async function currentGalleryImage(requestedId?: string): Promise<Blob | null> {
   const gallery = await popupGallery();
-  const id = gallery.selectedId ?? gallery.items[0]?.id;
+  const id = requestedId ?? gallery.selectedId ?? gallery.items[0]?.id;
   return id ? (await imageRecord(id))?.original ?? null : null;
 }
 export async function galleryThumbnail(id: string): Promise<Blob> {
@@ -77,11 +100,31 @@ export async function addPopupImages(files: File[]) {
       if (gallery.items.length >= 32) throw new Error("最多添加 32 张图片");
       const id = crypto.randomUUID();
       await imageRecord(id, { original: file, thumbnail });
-      gallery.items.push({ id, name: file.name });
+      gallery.items.push({ id, name: file.name, caption: emptyCaption });
       localStorage.setItem(key, JSON.stringify(gallery));
       changed();
     }
   }
+}
+export async function updateImageCaption(id: string, caption: Caption) {
+  caption = normalizeCaption(caption);
+  if (native) return invoke<void>("update_image_caption", { id, caption });
+  const gallery = await popupGallery();
+  if (id === "") gallery.defaultCaption = caption;
+  else {
+    const item = gallery.items.find((item) => item.id === id);
+    if (!item) throw new Error("图片不存在");
+    item.caption = caption;
+  }
+  localStorage.setItem(key, JSON.stringify(gallery));
+  changed();
+}
+export async function popupImageState(id?: string): Promise<{ id: string; caption: Caption; revision: number }> {
+  if (native) return invoke("popup_image_state", { id });
+  const gallery = await popupGallery();
+  const selected = id ?? gallery.selectedId ?? gallery.items[0]?.id ?? "";
+  const item = gallery.items.find((item) => item.id === selected);
+  return { id: selected, caption: item?.caption ?? gallery.defaultCaption, revision: 0 };
 }
 export async function removePopupImage(id: string) {
   if (native) return invoke("remove_popup_image", { id });
@@ -103,7 +146,7 @@ export async function reorderPopupImages(ids: string[]) {
 export async function clearGallery() {
   if (native) return invoke("reset_popup_image");
   const gallery = await popupGallery();
-  localStorage.setItem(key, JSON.stringify({ items: [], selectedId: null }));
+  localStorage.setItem(key, JSON.stringify({ items: [], selectedId: null, defaultCaption }));
   localStorage.removeItem("moyu-popup-image");
   for (const image of gallery.items) await imageRecord(image.id, null);
   changed();

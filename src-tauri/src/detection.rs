@@ -20,6 +20,7 @@ pub struct Settings {
     pub device_id: String,
     pub confidence: f32,
     pub hold_seconds: f64,
+    pub edge_hold_seconds: Option<f64>,
     pub intensity: f64,
     pub edge_width: u32,
     pub region: String,
@@ -29,6 +30,8 @@ pub struct Settings {
     pub glow_color: String,
     pub snooze_minutes: u64,
     pub image_selection: String,
+    pub popup: crate::reminders::PopupOptions,
+    pub actions: crate::automation::Actions,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -36,6 +39,7 @@ impl Default for Settings {
             device_id: String::new(),
             confidence: 0.55,
             hold_seconds: 3.0,
+            edge_hold_seconds: None,
             intensity: 0.72,
             edge_width: 52,
             region: "full".into(),
@@ -45,6 +49,8 @@ impl Default for Settings {
             glow_color: "#ff1930".into(),
             snooze_minutes: 3,
             image_selection: "random".into(),
+            popup: crate::reminders::PopupOptions::default(),
+            actions: crate::automation::Actions::default(),
         }
     }
 }
@@ -68,7 +74,7 @@ impl Settings {
         self.edge_width = self.edge_width.clamp(16, 100);
         self.min_people = self.min_people.clamp(1, 5);
         self.detection_interval_ms = self.detection_interval_ms.clamp(100, 2000);
-        if !["edge", "popup"].contains(&self.alert_mode.as_str()) {
+        if !["edge", "popup", "mixed", "none"].contains(&self.alert_mode.as_str()) {
             self.alert_mode = "edge".into();
         }
         if self.glow_color.len() != 7
@@ -86,8 +92,18 @@ impl Settings {
         if !["full", "left", "right", "center"].contains(&self.region.as_str()) {
             self.region = "full".into();
         }
+        self.popup = self.popup.validated();
+        let hold = |value: Option<f64>| value.filter(|v| v.is_finite()).unwrap_or(self.hold_seconds).clamp(1.0, 10.0);
+        self.edge_hold_seconds = Some(hold(self.edge_hold_seconds));
+        self.popup.hold_seconds = Some(hold(self.popup.hold_seconds));
+        self.actions.url = self.actions.url.trim().to_owned();
+        self.actions.window_title = self.actions.window_title.trim().to_owned();
         self
     }
+    pub fn has_edge(&self) -> bool { ["edge", "mixed"].contains(&self.alert_mode.as_str()) }
+    pub fn has_popup(&self) -> bool { ["popup", "mixed"].contains(&self.alert_mode.as_str()) }
+    pub fn edge_hold(&self) -> f64 { self.edge_hold_seconds.unwrap_or(self.hold_seconds) }
+    pub fn popup_hold(&self) -> f64 { self.popup.hold_seconds.unwrap_or(self.hold_seconds) }
     pub fn includes(&self, person: &Person) -> bool {
         let center = person.x + person.width / 2.0;
         match self.region.as_str() {
@@ -104,6 +120,7 @@ pub struct AlertGate {
     consecutive: u32,
     previous: Option<Instant>,
     until: Option<Instant>,
+    confirmed_at: Option<Instant>,
 }
 impl AlertGate {
     pub fn update(&mut self, positive: bool, now: Instant, settings: &Settings) -> bool {
@@ -122,13 +139,15 @@ impl AlertGate {
         };
         self.previous = Some(now);
         if self.consecutive >= 2 {
-            self.until = Some(now + Duration::from_secs_f64(settings.hold_seconds));
+            self.confirmed_at = Some(now);
+            self.until = Some(now + Duration::from_secs_f64(settings.edge_hold().max(settings.popup_hold())));
         }
         self.active(now)
     }
     pub fn active(&self, now: Instant) -> bool {
         self.until.is_some_and(|until| now < until)
     }
+    pub fn confirmed_at(&self) -> Option<Instant> { self.confirmed_at }
 }
 
 pub struct Detector {
@@ -243,6 +262,18 @@ mod tests {
         assert!(gate.update(true, now + Duration::from_secs(2), &settings));
         assert!(gate.update(false, now + Duration::from_secs(4), &settings));
         assert!(!gate.active(now + Duration::from_secs(5)));
+    }
+    #[test]
+    fn absence_does_not_extend_either_hold_and_event_uses_longest_hold() {
+        let settings = Settings { edge_hold_seconds: Some(2.0), popup: crate::reminders::PopupOptions { hold_seconds: Some(8.0), ..Default::default() }, ..Settings::default() };
+        let now = Instant::now();
+        let mut gate = AlertGate::default();
+        assert!(!gate.update(true, now, &settings));
+        assert!(gate.update(true, now + Duration::from_millis(500), &settings));
+        let confirmed = gate.confirmed_at();
+        assert!(gate.update(false, now + Duration::from_secs(4), &settings));
+        assert_eq!(gate.confirmed_at(), confirmed);
+        assert!(!gate.active(now + Duration::from_secs(9)));
     }
     #[test]
     fn real_model_detects_people_and_rejects_empty_image() {

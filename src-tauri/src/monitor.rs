@@ -51,6 +51,7 @@ pub struct Snapshot {
     pub alert_event: u64,
     pub alert_people: usize,
     pub alert_at: u64,
+    pub present: bool,
 }
 struct Captured {
     sequence: u64,
@@ -66,6 +67,7 @@ struct Shared {
     latest: Mutex<Option<Captured>>,
     jpeg: Mutex<Vec<u8>>,
     preview_requested: Mutex<Option<Instant>>,
+    confirmed_at: Mutex<Option<Instant>>,
 }
 pub struct Monitor {
     shared: Arc<Shared>,
@@ -74,6 +76,24 @@ pub struct Monitor {
 struct Worker {
     handle: JoinHandle<()>,
     device_id: String,
+}
+#[cfg(test)]
+mod reminder_tests {
+    use super::*;
+    #[test]
+    fn local_reminders_have_independent_holds_and_stop_with_detection() {
+        let monitor = Monitor::default();
+        monitor.shared.running.store(true, Ordering::Relaxed);
+        monitor.shared.snapshot.lock().unwrap().phase = "alert".into();
+        *monitor.shared.confirmed_at.lock().unwrap() = Some(Instant::now() - Duration::from_secs(4));
+        assert!(!monitor.reminder_active(2.0));
+        assert!(monitor.reminder_active(8.0));
+        monitor.shared.snapshot.lock().unwrap().phase = "idle".into();
+        assert!(!monitor.reminder_active(8.0));
+        monitor.shared.snapshot.lock().unwrap().phase = "alert".into();
+        monitor.shared.running.store(false, Ordering::Relaxed);
+        assert!(!monitor.reminder_active(8.0));
+    }
 }
 impl Default for Monitor {
     fn default() -> Self {
@@ -89,6 +109,7 @@ impl Default for Monitor {
                 latest: Mutex::new(None),
                 jpeg: Mutex::new(Vec::new()),
                 preview_requested: Mutex::new(None),
+                confirmed_at: Mutex::new(None),
             }),
             worker: Mutex::new(None),
         }
@@ -106,6 +127,10 @@ impl Monitor {
     }
     pub fn active(&self) -> bool {
         self.shared.running.load(Ordering::Relaxed) && self.snapshot().phase == "alert"
+    }
+    pub fn reminder_active(&self, hold_seconds: f64) -> bool {
+        self.active() && self.shared.confirmed_at.lock().unwrap().is_some_and(|at|
+            Instant::now().duration_since(at) < Duration::from_secs_f64(hold_seconds))
     }
     pub fn start(&self, app: tauri::AppHandle, settings: Settings) -> Result<(), String> {
         let mut worker = self.worker.lock().map_err(|e| e.to_string())?;
@@ -139,6 +164,7 @@ impl Monitor {
         Ok(())
     }
     fn spawn(&self, app: tauri::AppHandle, device_id: String) -> Worker {
+        *self.shared.confirmed_at.lock().unwrap() = None;
         *self.shared.latest.lock().unwrap() = None;
         self.shared.jpeg.lock().unwrap().clear();
         let event = self.snapshot().alert_event;
@@ -350,6 +376,7 @@ fn process(app: &tauri::AppHandle, shared: &Arc<Shared>) -> Result<(), String> {
         if generation != next_generation {
             generation = next_generation;
             gate = AlertGate::default();
+            *shared.confirmed_at.lock().unwrap() = None;
             last_detection = None;
         }
         let detecting = generation % 2 == 1;
@@ -425,6 +452,8 @@ fn process(app: &tauri::AppHandle, shared: &Arc<Shared>) -> Result<(), String> {
                         .as_millis() as u64;
                 }
                 snapshot.people = people;
+                snapshot.present = gate.confirmed_at().is_some_and(|at| Some(at) != *shared.confirmed_at.lock().unwrap());
+                *shared.confirmed_at.lock().unwrap() = gate.confirmed_at();
                 snapshot.latency = inference_started.elapsed().as_millis() as u64;
                 snapshot.inference_count += 1;
                 snapshot.phase = if active { "alert" } else { "watching" }.into();

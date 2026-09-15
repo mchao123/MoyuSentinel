@@ -37,7 +37,8 @@ try {
     await invoke("stop_monitoring"); await invoke("resume_reminders");
   }
   await page.getByRole("tab", { name: "提醒", exact: true }).click();
-  await page.getByRole("button", { name: "图片弹窗", exact: true }).click();
+  await page.getByRole("checkbox", { name: "边缘光", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "弹窗", exact: true }).check();
   await page.getByLabel("选择提醒图片").setInputFiles(fixtures);
   await expect(page.locator(".gallery-list li")).toHaveCount(3);
   await expect(page.getByRole("button", { name: "添加图片", exact: false })).toBeEnabled();
@@ -76,12 +77,12 @@ try {
     await page.waitForTimeout(3400);
   }
   await page.getByRole("button", { name: "上移 ad-3.png", exact: true }).click();
-  await expect(page.locator(".gallery-name")).toHaveText(["ad-1.png", "ad-3.png", "ad-2.png"]);
+  await expect.poll(() => page.locator(".gallery-preview-button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")))).toEqual(["预览 ad-1.png", "预览 ad-3.png", "预览 ad-2.png"]);
   await page.getByRole("button", { name: "删除 ad-2.png", exact: true }).click();
   await expect(page.locator(".gallery-list li")).toHaveCount(2);
   await page.reload();
   await page.getByRole("tab", { name: "提醒", exact: true }).click();
-  await expect(page.locator(".gallery-name")).toHaveText(["ad-1.png", "ad-3.png"]);
+  await expect.poll(() => page.locator(".gallery-preview-button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")))).toEqual(["预览 ad-1.png", "预览 ad-3.png"]);
   await page.screenshot({ path: `test-results/${native ? "native" : "browser"}-gallery.png`, fullPage: true, ...(native ? { mask: [page.locator(".camera-frame")] } : {}) });
   await page.getByRole("tab", { name: "共享", exact: true }).click();
   if (native) {

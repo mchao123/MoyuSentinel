@@ -5,6 +5,7 @@ mod monitor;
 mod reminders;
 mod ads;
 mod sharing;
+mod automation;
 
 use serde::Serialize;
 use std::{
@@ -94,7 +95,7 @@ async fn start_monitoring(
     settings: detection::Settings,
 ) -> Result<(), String> {
     main_only(&window)?;
-    if settings.alert_mode == "popup" {
+    if settings.has_popup() {
         reminders::ensure_popup(&app)?;
     }
     create_overlays(&app)?;
@@ -175,13 +176,13 @@ fn set_alert(
 fn overlay_state(state: tauri::State<Runtime>) -> Result<Glow, String> {
     let settings = state.monitor.settings();
     let mut glow = state.alert.lock().map_err(|e| e.to_string())?.glow();
-    if state.monitor.active() || state.sharing.active() {
+    if state.monitor.reminder_active(settings.edge_hold()) || state.sharing.reminder_active(settings.edge_hold()) {
         glow.active = true;
         glow.intensity = settings.intensity;
         glow.width = settings.edge_width;
     }
-    glow.color = settings.glow_color;
-    glow.active &= settings.alert_mode == "edge"
+    glow.color = settings.glow_color.clone();
+    glow.active &= settings.has_edge()
         && !state
             .snooze
             .lock()
@@ -293,17 +294,23 @@ async fn save_settings(
     let validated = serde_json::from_value::<detection::Settings>(settings.clone())
         .map_err(|e| e.to_string())?
         .validated();
-    if validated.alert_mode == "popup" {
+    if validated.has_popup() {
         reminders::ensure_popup(&app)?;
     }
     let temporary = state.data_dir.join("settings.json.tmp");
     fs::write(
         &temporary,
-        serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?,
+        serde_json::to_vec_pretty(&validated).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     fs::rename(temporary, state.data_dir.join("settings.json")).map_err(|e| e.to_string())?;
-    state.monitor.update(validated);
+    state.monitor.update(validated.clone());
+    for (label, popup) in app.webview_windows() {
+        if label.starts_with("popup-") {
+            let _ = popup.emit("popup-settings-changed", &validated.popup);
+            reminders::place_popup(&popup)?;
+        }
+    }
     Ok(())
 }
 
@@ -352,7 +359,7 @@ fn main() {
             let share_config = app.state::<Runtime>().sharing.config();
             if share_config.receive_enabled && !share_config.peers.is_empty() {
                 create_overlays(app.handle())?;
-                if app.state::<Runtime>().monitor.settings().alert_mode == "popup" { reminders::ensure_popup(app.handle())?; }
+                if app.state::<Runtime>().monitor.settings().has_popup() { reminders::ensure_popup(app.handle())?; }
             }
             sharing::start(app.handle().clone());
             let handle = app.handle().clone();
@@ -403,6 +410,7 @@ fn main() {
               let mut previous_monitor_action = "";
               let mut previous_popup_active = false;
               let mut previous_popup_event = (0, 0);
+              let mut action_gate = automation::ActionGate::default();
               loop {
                 std::thread::sleep(Duration::from_millis(350));
                 let visible = handle.get_webview_window("main").is_some_and(|window| window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true));
@@ -427,18 +435,19 @@ fn main() {
                 let local_source_active = state.monitor.active() || local_alert.active;
                 let remote_source_active = state.sharing.active();
                 let snoozed = state.snooze.lock().map(|snooze| snooze.active(Instant::now())).unwrap_or(true);
-                let reminder_active = (local_source_active || remote_source_active) && !snoozed;
+                let edge_active = (local_alert.active || state.monitor.reminder_active(settings.edge_hold()) || state.sharing.reminder_active(settings.edge_hold())) && !snoozed;
+                let popup_reminder_active = (local_alert.active || state.monitor.reminder_active(settings.popup_hold()) || state.sharing.reminder_active(settings.popup_hold())) && !snoozed;
                 let mut glow = local_alert.clone();
-                glow.active = reminder_active;
+                glow.active = edge_active;
                 if remote_source_active && !local_source_active {
                     glow.intensity = settings.intensity;
                     glow.width = settings.edge_width;
                 }
-                glow.color = settings.glow_color;
+                glow.color = settings.glow_color.clone();
                 if snoozed { glow.active = false; }
                 let exiting = state.exiting.load(Ordering::Relaxed);
                 glow.active &= !exiting;
-                let popup_active = reminder_active && settings.alert_mode == "popup";
+                let popup_active = popup_reminder_active && settings.has_popup() && !exiting;
                 let popup_event = (state.monitor.snapshot().alert_event, state.sharing.event_count.load(Ordering::Relaxed));
                 if popup_active && (!previous_popup_active || popup_event != previous_popup_event) {
                     if let Err(error) = ads::select_next(&handle, &settings.image_selection) {
@@ -447,7 +456,18 @@ fn main() {
                 }
                 previous_popup_active = popup_active;
                 previous_popup_event = popup_event;
-                glow.active &= settings.alert_mode == "edge";
+                glow.active &= settings.has_edge();
+                // Preview leases never launch applications. Suppressed detections are
+                // consumed so resuming reminders cannot replay an old window action.
+                if action_gate.update(state.monitor.active() || remote_source_active, popup_event, snoozed || exiting) {
+                    let actions = settings.actions.clone();
+                    let app = handle.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let state = app.state::<Runtime>();
+                        if state.exiting.load(Ordering::Relaxed) || state.snooze.lock().map(|s| s.active(Instant::now())).unwrap_or(true) { return; }
+                        if let Err(error) = automation::execute(&actions) { let _ = app.emit_to("main", "monitor-error", error); }
+                    });
+                }
                 let keep_glow_visible = glow_transition.visible(glow.active, Instant::now());
                 let changed = previous_glow.as_ref() != Some(&glow);
                 previous_glow = Some(glow.clone());
@@ -474,7 +494,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![set_alert, overlay_state, prepare_overlays, load_settings, save_settings, hide_to_tray, list_cameras, start_monitoring, stop_monitoring, monitor_state, preview_frame, reminders::reminder_state, reminders::dismiss_popup, reminders::resume_reminders, reminders::popup_image, reminders::import_popup_image, reminders::reset_popup_image, ads::popup_gallery, ads::gallery_image, ads::add_popup_image, ads::remove_popup_image, ads::reorder_popup_images, ads::popup_image_revision, ads::popup_ready, sharing::sharing_state, sharing::save_sharing])
+        .invoke_handler(tauri::generate_handler![set_alert, overlay_state, prepare_overlays, load_settings, save_settings, hide_to_tray, list_cameras, start_monitoring, stop_monitoring, monitor_state, preview_frame, reminders::reminder_state, reminders::dismiss_popup, reminders::resume_reminders, reminders::popup_image, reminders::popup_settings, reminders::import_popup_image, reminders::reset_popup_image, ads::popup_gallery, ads::gallery_image, ads::add_popup_image, ads::remove_popup_image, ads::reorder_popup_images, ads::popup_image_revision, ads::popup_ready, ads::popup_image_state, ads::update_image_caption, sharing::sharing_state, sharing::save_sharing, automation::list_target_windows, automation::test_actions])
         .run(tauri::generate_context!())
         .expect("Failed to start Moyu Sentinel. Put the portable app in a writable folder and ensure Microsoft Edge WebView2 is installed.");
 }

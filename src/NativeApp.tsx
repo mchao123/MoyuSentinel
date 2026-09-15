@@ -28,6 +28,8 @@ import {
   normalizeSettings,
   regionBounds,
   type Settings,
+  hasEdge,
+  hasPopup,
 } from "./domain";
 import {
   hideToTray,
@@ -51,8 +53,10 @@ import {
   type ReminderState,
 } from "./bridge";
 import { GlowLayer } from "./Overlay";
-import { PopupCard, usePopupImage } from "./Popup";
+import { PopupCard, popupPosition, usePopupImage } from "./Popup";
+import { ReminderSettings } from "./ReminderSettings";
 import { AdGallery } from "./AdGallery";
+import type { Caption } from "./gallery";
 import { ReminderPreview } from "./ReminderPreview";
 import { SharingPage, useSharingState, type SharedEvent } from "./Sharing";
 
@@ -87,6 +91,8 @@ export function App() {
   const [page, setPage] = useState<"monitor" | "reminder" | "sharing">("monitor");
   const sharing = useSharingState();
   const popupImage = usePopupImage();
+  const [editingImage, setEditingImage] = useState<{ id: string; caption: Caption }>();
+  const editedImage = usePopupImage(editingImage?.id);
   const paused = snoozeUntil > now;
   useEffect(() => {
     let disposed = false;
@@ -360,7 +366,7 @@ export function App() {
         {!paused && sharing.state.activeSources.length > 0 && <div className="shared-alert" role="status"><Network size={16} /><span>来人提醒：{sharing.state.activeSources.join("、")}</span></div>}
         {page === "sharing" && <div id="sharing-page" role="tabpanel"><SharingPage state={sharing.state} onSave={sharing.save} onError={setError} /></div>}
         <div className={`workspace ${page}`} id={page === "reminder" ? "reminder-page" : "monitor-page"} role="tabpanel" hidden={page === "sharing"}>
-          {page === "reminder" && <div className="reminder-page-heading"><div><Bell size={20} /><strong>来人提醒</strong></div><span>本机摄像头和共享设备均使用这里的提醒方式</span><button className="test-button" disabled={testing || paused || importing} onClick={() => void testGlow()}><Monitor size={16} />{testing ? "提醒测试中…" : "测试提醒（当前方式）"}<small>3 秒</small></button></div>}
+          {page === "reminder" && <div className="reminder-page-heading"><div><Bell size={20} /><strong>来人提醒</strong></div><button className="test-button" disabled={testing || paused || importing} onClick={() => void testGlow()}><Monitor size={16} />{testing ? "提醒测试中…" : "测试提醒"}<small>3 秒</small></button></div>}
           <section className="camera-section">
             <div className="section-heading">
               <span className={`status-badge ${phase}`}>
@@ -628,115 +634,34 @@ export function App() {
             )}
             {settingsTab === "reminder" && (
               <div
-                className={`settings-group ${settings.alertMode === "popup" ? "popup-settings" : ""}`}
+                className="settings-group reminder-editor"
                 role="tabpanel"
                 id="reminder-settings"
                 aria-labelledby="reminder-tab"
               >
-                <div className="mode-switch" role="group" aria-label="提醒方式">
-                  <button
-                    aria-pressed={settings.alertMode === "edge"}
-                    onClick={() => update("alertMode", "edge")}
-                  >
-                    边缘光
-                  </button>
-                  <button
-                    aria-pressed={settings.alertMode === "popup"}
-                    onClick={() => update("alertMode", "popup")}
-                  >
-                    图片弹窗
-                  </button>
-                </div>
-                {settings.alertMode === "edge" ? (
-                  <>
-                    <label className="color-field">
-                      提醒颜色
-                      <input
-                        type="color"
-                        aria-label="提醒颜色"
-                        value={settings.glowColor}
-                        onChange={(e) => update("glowColor", e.target.value)}
-                      />
-                    </label>
-                    <Range
-                      label="边缘光强度"
-                      value={settings.intensity}
-                      min={0.2}
-                      max={1}
-                      step={0.05}
-                      display={`${Math.round(settings.intensity * 100)}%`}
-                      onChange={(v) => update("intensity", v)}
-                    />
-                    <Range
-                      label="边缘宽度"
-                      value={settings.edgeWidth}
-                      min={16}
-                      max={100}
-                      step={2}
-                      display={`${settings.edgeWidth} px`}
-                      onChange={(v) => update("edgeWidth", v)}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <label className="number-field">
-                      关闭后暂停
-                      <span>
-                        <input
-                          type="number"
-                          aria-label="关闭后暂停分钟"
-                          min={1}
-                          max={60}
-                          step={1}
-                          value={settings.snoozeMinutes}
-                          onChange={(e) =>
-                            update(
-                              "snoozeMinutes",
-                              Math.min(
-                                60,
-                                Math.max(
-                                  1,
-                                  Math.round(Number(e.target.value) || 1),
-                                ),
-                              ),
-                            )
-                          }
-                        />
-                        分钟
-                      </span>
-                    </label>
-                  </>
-                )}
-                <Range
-                  label="离开后保留"
-                  value={settings.holdSeconds}
-                  min={1}
-                  max={10}
-                  step={1}
-                  display={`${settings.holdSeconds} 秒`}
-                  onChange={(v) => update("holdSeconds", v)}
-                />
+                <ReminderSettings settings={settings} update={update} onError={setError} paused={paused} gallery={
+                  <AdGallery selection={settings.imageSelection} onSelection={(value) => update("imageSelection", value)} onError={setError} onBusy={setImporting} onPreview={setEditingImage} />
+                } />
               </div>
             )}
             {page === "reminder" && <div className="reminder-media">
-              <ReminderPreview settings={settings} url={popupImage.url} />
-              <div className="reminder-gallery-slot">
-                {settings.alertMode === "popup" && <AdGallery selection={settings.imageSelection} onSelection={(value) => update("imageSelection", value)} onError={setError} onBusy={setImporting} />}
-              </div>
+              <ReminderPreview settings={settings} url={editedImage.url} caption={editingImage?.caption ?? editedImage.caption} />
             </div>}
           </aside>
         </div>
       </main>
-      {!native && settings.alertMode === "edge" && (
-        <GlowLayer glow={previewGlow} />
+      {!native && hasEdge(settings) && (
+        <GlowLayer glow={{ ...previewGlow, active: previewGlow.active && !paused }} />
       )}
       {!native &&
-        settings.alertMode === "popup" &&
+        hasPopup(settings) &&
         previewGlow.active &&
         !paused && (
-          <div className="browser-popup">
+          <div className="browser-popup" style={{ ...popupPosition(settings.popup), position: "fixed" }}>
             <PopupCard
               url={popupImage.url}
+              options={settings.popup}
+              caption={popupImage.caption}
               onClose={() => {
                 setSnoozeUntil(Date.now() + settings.snoozeMinutes * 60000);
                 setNow(Date.now());

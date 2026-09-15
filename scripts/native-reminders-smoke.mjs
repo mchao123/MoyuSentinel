@@ -97,7 +97,8 @@ try {
   await deactivate();
 
   await page.getByRole("tab", { name: "提醒", exact: true }).click();
-  await page.getByRole("button", { name: "图片弹窗", exact: true }).click();
+  await page.getByRole("checkbox", { name: "边缘光", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "弹窗", exact: true }).check();
   await expect
     .poll(async () => (await invoke("load_settings")).alertMode)
     .toBe("popup");
@@ -107,7 +108,7 @@ try {
     mimeType: "image/jpeg",
     buffer: fixture,
   });
-  await page.locator(".image-preview .custom img").waitFor();
+  await page.locator(".preview-window .custom img").waitFor();
   const imported = await bytes();
   const metadata = await sharp(Buffer.from(imported)).metadata();
   assert.equal(metadata.format, "jpeg");
@@ -304,7 +305,8 @@ try {
   );
   await page.getByRole("button", { name: "恢复提醒", exact: true }).waitFor();
   await page.getByRole("tab", { name: "提醒", exact: true }).click();
-  await page.getByRole("button", { name: "边缘光", exact: true }).click();
+  await page.getByRole("checkbox", { name: "弹窗", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "边缘光", exact: true }).check();
   await page.waitForTimeout(700);
   assert.ok(
     (await inspect()).windows
@@ -322,10 +324,11 @@ try {
   );
   await deactivate();
 
-  await page.getByRole("button", { name: "图片弹窗", exact: true }).click();
+  await page.getByRole("checkbox", { name: "边缘光", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "弹窗", exact: true }).check();
   await page.getByLabel("关闭后暂停分钟").fill("1");
   await page.getByRole("button", { name: "恢复默认图片", exact: true }).click();
-  await page.locator(".image-preview .default-ad img").waitFor();
+  await page.locator(".preview-window .default-ad img").waitFor();
   await page.waitForTimeout(500);
   await activate();
   await popup.locator(".default-ad img").waitFor();

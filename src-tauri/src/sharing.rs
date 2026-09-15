@@ -69,9 +69,12 @@ pub struct Detection {
     pub people: usize,
     pub alert_event: u64,
     pub updated_at: u64,
+    #[serde(default)]
+    pub present: Option<bool>,
 }
 #[derive(Clone, Default)]
 struct LivePeer {
+    confirmed_at: Option<Instant>,
     detection: Option<Detection>,
     received: Option<Instant>,
     last_seen: u64,
@@ -80,6 +83,11 @@ struct LivePeer {
     last_event: Option<(String, u64)>,
 }
 impl LivePeer {
+    fn reminder_active(&self, now: Instant, hold_seconds: f64) -> bool {
+        self.error.is_none() && self.received.is_some_and(|at| now.duration_since(at) < LEASE)
+            && self.detection.as_ref().is_some_and(|detection| ["alert", "watching"].contains(&detection.phase.as_str()))
+            && self.confirmed_at.is_some_and(|at| now.duration_since(at) < Duration::from_secs_f64(hold_seconds))
+    }
     fn active(&self, now: Instant) -> bool {
         self.error.is_none()
             && self
@@ -157,6 +165,13 @@ impl Sharing {
                 .unwrap()
                 .values()
                 .any(|peer| peer.active(Instant::now()))
+    }
+    pub fn reminder_active(&self, hold_seconds: f64) -> bool {
+        let config = self.config.lock().unwrap();
+        if !config.receive_enabled { return false; }
+        let live = self.live.lock().unwrap();
+        config.peers.iter().filter(|peer| peer.enabled).any(|peer|
+            live.get(&peer.id).is_some_and(|value| value.reminder_active(Instant::now(), hold_seconds)))
     }
     pub fn snapshot(&self) -> Snapshot {
         let config = self.config();
@@ -283,6 +298,9 @@ impl Sharing {
         let value = live.entry(peer.id.clone()).or_default();
         match result {
             Ok(detection) => {
+                if detection.phase == "alert" && detection.present.unwrap_or(true) {
+                    value.confirmed_at = Some(Instant::now());
+                } else if !["alert", "watching"].contains(&detection.phase.as_str()) { value.confirmed_at = None; }
                 let signature = (detection.session_id.clone(), detection.alert_event);
                 let event = if detection.phase == "alert"
                     && value.last_event.as_ref() != Some(&signature)
@@ -313,6 +331,7 @@ impl Sharing {
                 event
             }
             Err(error) => {
+                value.confirmed_at = None;
                 value.received = None;
                 value.error = Some(error);
                 None
@@ -417,10 +436,11 @@ fn serve(app: tauri::AppHandle, server: Server, stop: Arc<AtomicBool>) {
                 source_id: config.source_id,
                 session_id: state.sharing.session_id.clone(),
                 device_name: config.device_name,
-                phase: local.phase,
+                phase: local.phase.clone(),
                 people: local.people.len(),
                 alert_event: local.alert_event,
                 updated_at: timestamp(),
+                present: Some(local.present && local.phase == "alert"),
             };
             (200, serde_json::to_string(&detection).unwrap())
         };
@@ -541,7 +561,7 @@ pub async fn save_sharing(
     main_only(&window)?;
     if config.receive_enabled && !config.peers.is_empty() {
         create_overlays(&app)?;
-        if app.state::<Runtime>().monitor.settings().alert_mode == "popup" {
+        if app.state::<Runtime>().monitor.settings().has_popup() {
             reminders::ensure_popup(&app)?;
         }
     }
@@ -557,6 +577,17 @@ pub async fn save_sharing(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn remote_holds_are_independent_and_never_outlive_connection_health() {
+        let now = Instant::now();
+        let mut peer = LivePeer { confirmed_at: Some(now - Duration::from_secs(4)), received: Some(now),
+            detection: Some(Detection { protocol_version: 1, source_id: "remote".into(), session_id: "session".into(), device_name: "door".into(), phase: "watching".into(), people: 0, alert_event: 1, updated_at: 0, present: Some(false) }), ..LivePeer::default() };
+        assert!(!peer.reminder_active(now, 2.0));
+        assert!(peer.reminder_active(now, 8.0));
+        assert!(!peer.reminder_active(now + LEASE, 8.0));
+        peer.error = Some("offline".into());
+        assert!(!peer.reminder_active(now, 8.0));
+    }
     #[test]
     fn disabling_sharing_releases_the_windows_wildcard_listener() {
         let server = Server::http(("0.0.0.0", 0)).unwrap();
@@ -616,6 +647,7 @@ mod tests {
             people: 1,
             alert_event: 1,
             updated_at: timestamp(),
+            present: None,
         };
         assert!(sharing
             .accept(&peer, Ok(detection.clone()), Duration::ZERO)

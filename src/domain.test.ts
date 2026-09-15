@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { normalizeSettings, regionBounds } from "./domain";
+import { defaults, hasEdge, hasPopup, normalizeSettings, regionBounds, validWebUrl, withReminder } from "./domain";
 
 it("migrates saved settings to low-frequency native detection", () => {
   expect(normalizeSettings({ minPeople: 2, confidence: 0.6 })).toMatchObject({
@@ -7,6 +7,35 @@ it("migrates saved settings to low-frequency native detection", () => {
     confidence: 0.6,
     detectionIntervalMs: 500,
   });
+});
+it("combines independent reminders and preserves legacy modes", () => {
+  expect(withReminder(defaults, "popup", true)).toBe("mixed");
+  const mixed = normalizeSettings({ alertMode: "mixed" });
+  expect(hasEdge(mixed) && hasPopup(mixed)).toBe(true);
+  expect(withReminder(mixed, "edge", false)).toBe("popup");
+  expect(withReminder(mixed, "popup", false)).toBe("edge");
+  expect(withReminder(normalizeSettings({ alertMode: "popup" }), "popup", false)).toBe("none");
+  expect(normalizeSettings({ alertMode: "popup", holdSeconds: 6 }).popup.holdSeconds).toBe(6);
+  expect(normalizeSettings({ alertMode: "none" }).alertMode).toBe("none");
+});
+it("keeps independent hold durations and the automation master switch", () => {
+  const settings = normalizeSettings({ holdSeconds: 6, edgeHoldSeconds: 2, popup: { holdSeconds: 9 }, actions: { enabled: false, openUrl: true } });
+  expect(settings.edgeHoldSeconds).toBe(2);
+  expect(settings.popup.holdSeconds).toBe(9);
+  expect(settings.actions.enabled).toBe(false);
+  expect(normalizeSettings({ holdSeconds: 6 }).edgeHoldSeconds).toBe(6);
+  expect(normalizeSettings({ actions: { openUrl: true } }).actions.enabled).toBe(true);
+});
+it("normalizes custom popup limits and leaves automatic actions opt-in", () => {
+  expect(normalizeSettings({ popup: { width: 9999, height: 0, opacity: NaN, textColor: "url(bad)", position: "bad", fontSize: 80 } }).popup).toMatchObject({
+    width: 1200, height: 120, opacity: 1, textColor: "#32353b", position: "bottom-right", fontSize: 48,
+  });
+  expect(normalizeSettings({}).actions).toMatchObject({ openUrl: false, focusWindow: false });
+  expect(normalizeSettings({ actions: { openUrl: "true", focusWindow: true, windowTitle: " Report " } }).actions).toMatchObject({ openUrl: false, focusWindow: true, windowTitle: "Report" });
+});
+it("accepts web addresses without allowing local programs or script URLs", () => {
+  expect(validWebUrl("https://example.com/?q=a&b=2")).toBe(true);
+  for (const url of ["file:///C:/test.exe", "javascript:alert(1)", "https://user:pass@example.com", "https://example.com/\0", "example.com", ""]) expect(validWebUrl(url)).toBe(false);
 });
 it("bounds invalid settings and recovers corrupted values", () => {
   expect(

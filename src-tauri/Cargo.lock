@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "moyu-sentinel"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "if-addrs",
  "image",
@@ -2010,6 +2010,7 @@ dependencies = [
  "tauri-build",
  "tiny_http",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

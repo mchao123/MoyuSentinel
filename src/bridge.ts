@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Settings } from "./domain";
+import { hasPopup, type Settings, type AlertActions } from "./domain";
 import type { Person } from "./domain";
 import { chooseGalleryImage, clearGallery, currentGalleryImage, replaceGalleryImage } from "./gallery";
 
@@ -78,7 +78,7 @@ export async function setGlow(
     if (test) await saveSettings(settings);
     await invoke("set_alert", { ...glow, test });
   } else {
-    if (active && settings.alertMode === "popup") await chooseGalleryImage(settings.imageSelection);
+    if (active && hasPopup(settings)) await chooseGalleryImage(settings.imageSelection);
     window.dispatchEvent(new CustomEvent("preview-glow", { detail: glow }));
   }
 }
@@ -97,6 +97,15 @@ export async function saveSettings(settings: Settings) {
 export async function prepareOverlays() {
   if (native) await invoke("prepare_overlays");
 }
+export interface WindowTarget { title: string; process: string }
+export async function listTargetWindows(): Promise<WindowTarget[]> {
+  if (!native) throw new Error("应用窗口列表需要 Windows 桌面程序");
+  return invoke("list_target_windows");
+}
+export async function testActions(actions: AlertActions) {
+  if (!native) throw new Error("自动操作需要 Windows 桌面程序");
+  await invoke("test_actions", { actions });
+}
 export async function hideToTray() {
   if (native) await invoke("hide_to_tray");
 }
@@ -110,11 +119,12 @@ export const resumeReminders = async () => {
   if (native) await invoke("resume_reminders");
 };
 
-export async function popupImage(): Promise<Blob | null> {
+export async function popupImage(id?: string): Promise<Blob | null> {
   if (!native) {
-    return currentGalleryImage();
+    return currentGalleryImage(id);
   }
-  const bytes = await invoke<ArrayBuffer>("popup_image");
+  if (id === "") return null;
+  const bytes = await invoke<ArrayBuffer>("popup_image", { id });
   return bytes.byteLength ? new Blob([bytes]) : null;
 }
 export async function importPopupImage(file: File) {

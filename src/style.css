@@ -25,15 +25,20 @@
   padding: 0 2px 8px;
 }
 .app-nav button[aria-selected="true"] { color: #303941; border-color: #e65063; }
-.ad-gallery { display: grid; grid-template-rows: 36px 36px minmax(0, 1fr); gap: 10px; min-height: 0; height: 100%; }
+.ad-gallery { display: grid; grid-template-rows: 36px 36px minmax(0, 1fr); gap: 10px; min-height: 0; height: 300px; }
 .gallery-mode { display: flex; align-items: center; gap: 12px; color: #69727e; font-size: 12px; }
 .gallery-mode select { flex: 1; }
-.gallery-list { list-style: none; padding: 0; margin: 0; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
-.gallery-list li { display: grid; grid-template-columns: 36px minmax(0, 1fr) repeat(3, 22px); align-items: center; gap: 3px; padding: 5px 0; border-bottom: 1px solid #e5e8ed; }
+.gallery-list { list-style: none; padding: 0; margin: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.gallery-list li { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: start; gap: 8px; padding: 8px 0; border-bottom: 1px solid #e5e8ed; }
 .gallery-list li.selected { background: #edf4f3; }
-.gallery-list img, .thumbnail-placeholder { width: 36px; height: 30px; object-fit: contain; background: #edf0f3; border-radius: 3px; }
-.gallery-name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gallery-list .icon-button { width: 22px; height: 28px; padding: 0; }
+.gallery-image-controls { display: grid; gap: 4px; }
+.gallery-list img, .thumbnail-placeholder { display: block; width: 76px; height: 56px; object-fit: contain; background: #edf0f3; border-radius: 3px; }
+.gallery-preview-button { border: 0; background: transparent; padding: 0; min-width: 0; color: inherit; }
+.gallery-item-actions { display: flex; justify-content: space-between; }
+.gallery-caption-editor { display: grid; min-width: 0; gap: 5px; }
+.gallery-caption-editor input, .gallery-caption-editor textarea { width: 100%; min-width: 0; border: 1px solid #dce0e6; border-radius: 4px; background: #fff; color: #37404b; padding: 6px 8px; font: inherit; font-size: 12px; }
+.gallery-caption-editor textarea { height: 48px; resize: none; }
+.gallery-list .icon-button { width: 24px; height: 24px; padding: 0; }
 .image-upload span { color: #858d98; font-size: 10px; }
 .sharing-page { display: grid; gap: 28px; }
 .sharing-section-heading, .sharing-section-heading strong, .sharing-peer-actions { display: flex; align-items: center; gap: 10px; }
@@ -108,6 +113,7 @@ main {
   gap: 24px;
 }
 .workspace.reminder { display: flex; flex-direction: column; overflow: hidden; gap: 0; }
+.app-shell:has(.workspace.reminder) > main { width: 100%; }
 .reminder-page-heading { width: 100%; margin: 0 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e1e5ea; padding-bottom: 15px; flex-shrink: 0; }
 .reminder-page-heading > div { display: flex; align-items: center; gap: 9px; color: #303941; }
 .reminder-page-heading strong { font-size: 18px; font-weight: 600; }
@@ -124,15 +130,33 @@ main {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(220px, .72fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   grid-template-rows: minmax(0, 1fr);
-  gap: 30px;
+  gap: 24px;
 }
 .workspace.reminder .settings-tabs { display: none; }
-.workspace.reminder .settings-group { margin: 0; border: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; align-content: start; gap: 20px; overflow: auto; }
+.workspace.reminder .settings-group { grid-column: 2; grid-row: 1; margin: 0; border: 0; border-left: 1px solid #e1e5ea; padding: 0 0 0 20px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; align-content: start; gap: 20px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .workspace.reminder .mode-switch { height: 36px; }
-.reminder-media { display: grid; grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; min-width: 0; min-height: 0; }
+.reminder-media { grid-column: 1; grid-row: 1; display: grid; grid-template-rows: minmax(0, 1fr); min-width: 0; min-height: 0; }
 .reminder-preview-stage { min-width: 0; min-height: 0; padding: 1px; }
+.reminder-preview { display: grid; grid-template-rows: 30px minmax(0, 1fr); gap: 10px; min-width: 0; min-height: 0; }
+.preview-toolbar { display: flex; gap: 14px; }
+.preview-toolbar button { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #737c87; padding: 0 2px; font-size: 12px; }
+.preview-toolbar button[aria-pressed="true"] { border-bottom-color: #2c8b72; color: #303941; }
+.reminder-toggles { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.reminder-toggles label, .action-toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.reminder-toggles svg { color: #2c8b72; }
+.reminder-fields { min-width: 0; margin: 0; border: 0; border-top: 1px solid #e1e5ea; padding: 16px 0 0; display: grid; gap: 14px; }
+.reminder-fields legend { padding: 0 8px 0 0; font-size: 12px; font-weight: 600; color: #57616d; }
+.mode-switch.popup-content-switch { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.editor-field { display: grid; gap: 7px; min-width: 0; color: #66707d; font-size: 12px; }
+.editor-field input, .editor-field textarea { min-width: 0; width: 100%; border: 1px solid #dce0e6; border-radius: 4px; background: white; padding: 8px; color: #37404b; font: inherit; outline-offset: 3px; }
+.editor-field input { height: 36px; }
+.editor-field input[aria-invalid="true"] { border-color: #c64152; }
+.editor-field textarea { resize: vertical; min-height: 72px; max-height: 180px; }
+.paired-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.target-process { color: #267c62; font-size: 12px; overflow-wrap: anywhere; }
+.reminder-editor .secondary-button { height: 34px; border: 1px solid #dce0e6; border-radius: 4px; background: white; color: #37404b; }
 .preview-window { position: relative; overflow: hidden; outline: 1px solid #cfd5dd; background: #eef1f4; }
 .preview-window.image-preview { border: 0; border-radius: 0; aspect-ratio: auto; max-height: none; }
 .preview-native-surface { position: absolute; top: 0; left: 0; transform-origin: top left; }
@@ -266,13 +290,15 @@ main {
   background: transparent;
   overflow: hidden;
 }
-.popup-card > img {
+.popup-content { width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.popup-image { position: relative; flex: 1; min-height: 0; }
+.popup-image > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
-.popup-card.default-ad > img {
+.popup-card.default-ad .popup-image > img {
   object-fit: cover;
 }
 .ad-caption {
@@ -287,15 +313,19 @@ main {
   justify-content: space-between;
   background: #fffc;
   padding: 12px 14px;
+  max-height: calc(100% - 46px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .ad-caption strong {
-  font-size: 15px;
+  font-size: inherit;
   font-weight: 600;
-  color: #38382e;
+  color: inherit;
 }
 .ad-caption span {
-  font-size: 11px;
-  color: #7b7462;
+  font-size: .75em;
+  color: inherit;
 }
 .popup-close {
   display: flex;
@@ -330,7 +360,6 @@ main {
   bottom: 12px;
   right: 12px;
   width: min(360px, calc(100vw - 24px));
-  aspect-ratio: 36 / 25;
   z-index: 99999;
 }
 .section-heading {
@@ -778,16 +807,14 @@ select {
   .app-shell:has(.workspace.reminder) > main { height: 100dvh; display: flex; flex-direction: column; }
   .app-shell:has(.workspace.reminder) .app-nav { flex-shrink: 0; }
   .workspace.reminder { flex: 1; min-height: 0; }
-  .workspace.reminder .settings-section { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, .8fr) minmax(0, 1fr); gap: 16px; }
-  .workspace.reminder .settings-group { gap: 12px; }
-  .reminder-media { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); grid-template-rows: minmax(0, 1fr); gap: 12px; }
+  .workspace.reminder .settings-section { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, .6fr) minmax(0, 1fr); gap: 16px; }
+  .workspace.reminder .settings-group { grid-column: 1; grid-row: 2; gap: 12px; border-left: 0; border-top: 1px solid #e1e5ea; padding: 12px 0 0; }
+  .reminder-media { grid-column: 1; grid-row: 1; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
   .reminder-page-heading { gap: 8px; margin-bottom: 14px; }
   .reminder-page-heading strong { font-size: 15px; }
   .reminder-page-heading .test-button { min-width: 0; padding: 0 8px; }
   .reminder-page-heading .test-button small { display: none; }
   .ad-gallery { gap: 8px; }
-  .gallery-list li { grid-template-columns: 30px minmax(0, 1fr) repeat(3, 22px); }
-  .gallery-list img, .thumbnail-placeholder { width: 30px; }
   .gallery-mode { gap: 6px; }
   .sharing-form-grid { grid-template-columns: minmax(0, 1fr); }
   .sharing-peer-actions { width: 100%; justify-content: space-between; flex-wrap: wrap; }

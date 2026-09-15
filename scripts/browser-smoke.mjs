@@ -105,17 +105,19 @@ try {
       ) === "0 200 120",
   );
   await page.waitForTimeout(3200);
-  await page.getByRole("button", { name: "图片弹窗", exact: true }).click();
+  await page.getByRole("checkbox", { name: "边缘光", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "弹窗", exact: true }).check();
   assert.equal(await page.getByLabel("关闭后暂停分钟").inputValue(), "3");
   await page
     .getByLabel("选择提醒图片")
     .setInputFiles("test-results/person-fixture.jpg");
-  await page.locator(".image-preview .custom img").waitFor();
+  await page.locator(".preview-window .custom img").waitFor();
   await page.getByLabel("关闭后暂停分钟").fill("5");
+  await page.getByLabel("关闭后暂停分钟").blur();
   await page.waitForTimeout(500);
   await page.reload();
   await page.getByRole("tab", { name: "提醒", exact: true }).click();
-  await page.locator(".image-preview .custom img").waitFor();
+  await page.locator(".preview-window .custom img").waitFor();
   assert.equal(await page.getByLabel("关闭后暂停分钟").inputValue(), "5");
   await page.getByRole("button", { name: /测试提醒/ }).click();
   await page.locator(".browser-popup").waitFor();
@@ -127,7 +129,7 @@ try {
   await page.getByRole("button", { name: "恢复提醒", exact: true }).click();
   await page.waitForTimeout(3200);
   await page.getByRole("button", { name: "恢复默认图片", exact: true }).click();
-  await page.locator(".image-preview .default-ad img").waitFor();
+  await page.locator(".preview-window .default-ad img").waitFor();
   await page.setViewportSize({ width: 940, height: 650 });
   await page.screenshot({
     path: "test-results/reminder-settings.png",

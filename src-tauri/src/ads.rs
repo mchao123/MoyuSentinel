@@ -8,18 +8,36 @@ use std::{
 use tauri::{Emitter, Manager, WebviewWindow};
 use uuid::Uuid;
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Caption { pub title: String, pub text: String }
+fn default_caption() -> Caption {
+    Caption { title: "好声音，随时随地".into(), text: "今日好物推荐".into() }
+}
+impl Caption {
+    fn validated(self) -> Self {
+        Self { title: self.title.chars().take(80).collect(), text: self.text.chars().take(1000).collect() }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdImage {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub caption: Caption,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Gallery {
     pub items: Vec<AdImage>,
     pub selected_id: Option<String>,
+    pub default_caption: Caption,
+}
+impl Default for Gallery {
+    fn default() -> Self { Self { items: Vec::new(), selected_id: None, default_caption: default_caption() } }
 }
 
 pub struct Library {
@@ -30,10 +48,13 @@ pub struct Library {
 impl Library {
     pub fn load(directory: &Path) -> Result<Self, String> {
         let manifest = directory.join("popup-images.json");
+        let saved: Option<serde_json::Value> = if manifest.exists() {
+            Some(serde_json::from_slice(&fs::read(&manifest).map_err(|e| e.to_string())?).map_err(|e| format!("图片列表读取失败：{e}"))?)
+        } else { None };
         let mut library = Self {
             directory: directory.to_path_buf(),
-            gallery: if manifest.exists() {
-                serde_json::from_slice(&fs::read(&manifest).map_err(|e| e.to_string())?)
+            gallery: if let Some(saved) = &saved {
+                serde_json::from_value(saved.clone())
                     .map_err(|e| format!("图片列表读取失败：{e}"))?
             } else {
                 Gallery::default()
@@ -50,6 +71,20 @@ impl Library {
                     break;
                 }
             }
+        }
+        // Earlier builds stored one global caption. Move it to the current image
+        // once, before the control window saves the new settings schema.
+        if saved.as_ref().is_none_or(|value| value.get("defaultCaption").is_none()) {
+            let previous = fs::read(directory.join("settings.json")).ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            if let Some(popup) = previous.as_ref().and_then(|value| value.get("popup")) {
+                if popup.get("content").and_then(|value| value.as_str()).is_some_and(|value| ["mixed", "text"].contains(&value)) {
+                    let caption = serde_json::from_value::<Caption>(popup.clone()).unwrap_or_default();
+                    let id = library.gallery.selected_id.clone().or_else(|| library.gallery.items.first().map(|item| item.id.clone())).unwrap_or_default();
+                    library.update_caption(&id, caption)?;
+                }
+            }
+            library.persist(&library.gallery)?;
         }
         Ok(library)
     }
@@ -111,6 +146,7 @@ impl Library {
         next.items.push(AdImage {
             id,
             name: name.trim().chars().take(120).collect::<String>(),
+            caption: Caption::default(),
         });
         let result = (|| {
             fs::write(&original, bytes).map_err(|e| e.to_string())?;
@@ -138,6 +174,14 @@ impl Library {
         self.gallery = next;
         let _ = fs::remove_file(self.path(id, false));
         let _ = fs::remove_file(self.path(id, true));
+        Ok(())
+    }
+    pub fn update_caption(&mut self, id: &str, caption: Caption) -> Result<(), String> {
+        let mut next = self.gallery.clone();
+        if id.is_empty() { next.default_caption = caption.validated(); }
+        else { next.items.iter_mut().find(|item| item.id == id).ok_or("图片不存在")?.caption = caption.validated(); }
+        self.persist(&next)?;
+        self.gallery = next;
         Ok(())
     }
     pub fn clear(&mut self) -> Result<(), String> {
@@ -222,6 +266,24 @@ pub fn popup_image_revision(
     Ok(state
         .popup_revision
         .load(std::sync::atomic::Ordering::Relaxed))
+}
+#[derive(Serialize)]
+pub struct ImageState { id: String, caption: Caption, revision: u64 }
+#[tauri::command]
+pub fn popup_image_state(window: WebviewWindow, state: tauri::State<Runtime>, id: Option<String>) -> Result<ImageState, String> {
+    if window.label() != "main" && !window.label().starts_with("popup-") { return Err("Image access denied".into()); }
+    let library = state.ads.lock().map_err(|e| e.to_string())?;
+    let gallery = &library.gallery;
+    let id = id.or_else(|| gallery.selected_id.clone()).or_else(|| gallery.items.first().map(|item| item.id.clone())).unwrap_or_default();
+    let caption = if id.is_empty() { gallery.default_caption.clone() }
+        else { gallery.items.iter().find(|item| item.id == id).ok_or("图片不存在")?.caption.clone() };
+    Ok(ImageState { id, caption, revision: state.popup_revision.load(std::sync::atomic::Ordering::Relaxed) })
+}
+#[tauri::command]
+pub fn update_image_caption(app: tauri::AppHandle, window: WebviewWindow, id: String, caption: Caption) -> Result<(), String> {
+    main_only(&window)?;
+    app.state::<Runtime>().ads.lock().map_err(|e| e.to_string())?.update_caption(&id, caption)?;
+    notify(&app)
 }
 #[tauri::command]
 pub fn popup_ready(
@@ -325,6 +387,39 @@ pub fn reorder_popup_images(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn captions_are_per_image_and_persist_without_changing_original_bytes() {
+        let directory = std::env::temp_dir().join(format!("moyu-captions-{}", Uuid::new_v4()));
+        let mut library = Library::load(&directory).unwrap();
+        let mut bytes = Cursor::new(Vec::new());
+        image::RgbImage::new(4, 4).write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        library.add(bytes.get_ref(), "one".into()).unwrap();
+        library.add(bytes.get_ref(), "two".into()).unwrap();
+        let id = library.snapshot().items[0].id.clone();
+        library.update_caption(&id, Caption { title: "First".into(), text: "Caption".into() }).unwrap();
+        library.update_caption("", Caption::default()).unwrap();
+        let restored = Library::load(&directory).unwrap();
+        assert_eq!(restored.snapshot().items[0].caption.text, "Caption");
+        assert_eq!(restored.snapshot().items[1].caption.text, "");
+        assert_eq!(restored.snapshot().default_caption.title, "");
+        assert_eq!(restored.read(Some(&id), false).unwrap(), *bytes.get_ref());
+        assert!(library.update_caption("missing", Caption::default()).is_err());
+        let legacy: Gallery = serde_json::from_str(r#"{"items":[{"id":"one","name":"one"}],"selectedId":"one"}"#).unwrap();
+        assert_eq!(legacy.items[0].caption.text, "");
+        assert_eq!(legacy.default_caption.title, default_caption().title);
+        fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn global_caption_migrates_once_and_does_not_restore_cleared_text() {
+        let directory = std::env::temp_dir().join(format!("moyu-caption-migration-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("settings.json"), br#"{"popup":{"content":"mixed","title":"Saved title","text":"Saved text"}}"#).unwrap();
+        let mut library = Library::load(&directory).unwrap();
+        assert_eq!(library.snapshot().default_caption.text, "Saved text");
+        library.update_caption("", Caption::default()).unwrap();
+        assert_eq!(Library::load(&directory).unwrap().snapshot().default_caption.text, "");
+        fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn gallery_preserves_bytes_order_and_selection_across_restarts() {
         let directory = std::env::temp_dir().join(format!("moyu-gallery-{}", Uuid::new_v4()));

@@ -1,5 +1,5 @@
 use crate::{main_only, Runtime, BROWSER_ARGS};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     io::Cursor,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -8,6 +8,58 @@ use tauri::{
     Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PopupOptions {
+    pub hold_seconds: Option<f64>,
+    pub width: u32,
+    pub height: u32,
+    pub opacity: f64,
+    pub position: String,
+    pub margin: u32,
+    pub font_size: u32,
+    pub text_color: String,
+    pub background_color: String,
+}
+impl Default for PopupOptions {
+    fn default() -> Self {
+        Self { hold_seconds: None,
+            width: 360, height: 250, opacity: 1.0, position: "bottom-right".into(), margin: 12,
+            font_size: 15, text_color: "#32353b".into(), background_color: "#ffffff".into() }
+    }
+}
+impl PopupOptions {
+    pub fn validated(mut self) -> Self {
+        if !["top-left", "top-right", "bottom-left", "bottom-right", "center"].contains(&self.position.as_str()) { self.position = "bottom-right".into(); }
+        self.width = self.width.clamp(180, 1200);
+        self.height = self.height.clamp(120, 900);
+        self.opacity = if self.opacity.is_finite() { self.opacity.clamp(0.2, 1.0) } else { 1.0 };
+        self.margin = self.margin.min(200);
+        self.font_size = self.font_size.clamp(12, 48);
+        let color = |value: &str| value.len() == 7 && value.starts_with('#') && value.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit);
+        if !color(&self.text_color) { self.text_color = "#32353b".into(); }
+        if !color(&self.background_color) { self.background_color = "#ffffff".into(); }
+        self
+    }
+    fn geometry(&self, area: (i32, i32, u32, u32), scale: f64) -> (i32, i32, u32, u32) {
+        let (x, y, available_width, available_height) = area;
+        let margin_x = ((self.margin as f64 * scale) as u32).min(available_width.saturating_sub((180.0 * scale) as u32) / 2);
+        let margin_y = ((self.margin as f64 * scale) as u32).min(available_height.saturating_sub((120.0 * scale) as u32) / 2);
+        let width = ((self.width as f64 * scale) as u32).min(available_width.saturating_sub(2 * margin_x).max(1));
+        let height = ((self.height as f64 * scale) as u32).min(available_height.saturating_sub(2 * margin_y).max(1));
+        let left = if self.position == "center" { available_width.saturating_sub(width) / 2 }
+            else if self.position.ends_with("left") { margin_x } else { available_width.saturating_sub(width + margin_x) };
+        let top = if self.position == "center" { available_height.saturating_sub(height) / 2 }
+            else if self.position.starts_with("top") { margin_y } else { available_height.saturating_sub(height + margin_y) };
+        (x + left as i32, y + top as i32, width, height)
+    }
+}
+#[tauri::command]
+pub fn popup_settings(window: WebviewWindow, state: tauri::State<Runtime>) -> Result<PopupOptions, String> {
+    if window.label() != "main" && !window.label().starts_with("popup-") { return Err("Popup access denied".into()); }
+    Ok(state.monitor.settings().popup)
+}
 
 #[derive(Default)]
 pub struct Snooze {
@@ -157,15 +209,12 @@ pub fn place_popup(popup: &WebviewWindow) -> Result<(), String> {
         .ok_or("Popup monitor is unavailable")?;
     let area = monitor.work_area();
     let scale = monitor.scale_factor();
-    let margin = (12.0 * scale) as u32;
-    let width = (360.0 * scale) as u32;
-    let height = (250.0 * scale) as u32;
-    let width = width.min(area.size.width.saturating_sub(margin * 2).max(1));
-    let height = height.min(area.size.height.saturating_sub(margin * 2).max(1));
+    let options = popup.app_handle().state::<Runtime>().monitor.settings().popup;
+    let (x, y, width, height) = options.geometry((area.position.x, area.position.y, area.size.width, area.size.height), scale);
     popup
         .set_position(PhysicalPosition::new(
-            area.position.x + area.size.width.saturating_sub(width + margin) as i32,
-            area.position.y + area.size.height.saturating_sub(height + margin) as i32,
+            x,
+            y,
         ))
         .map_err(|e| e.to_string())?;
     popup
@@ -244,6 +293,39 @@ pub fn reset_popup_image(app: tauri::AppHandle, window: WebviewWindow) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_and_combined_settings_survive_deserialization() {
+        let legacy: crate::detection::Settings = serde_json::from_str(r##"{"alertMode":"popup","glowColor":"#00ff80"}"##).unwrap();
+        let legacy = legacy.validated();
+        assert!(legacy.has_popup() && !legacy.has_edge());
+        assert_eq!(legacy.popup.width, 360);
+        assert_eq!(legacy.popup.hold_seconds, Some(3.0));
+        assert!(!legacy.actions.open_url && !legacy.actions.focus_window);
+        let mixed: crate::detection::Settings = serde_json::from_str(r##"{"alertMode":"mixed","popup":{"content":"text","width":5000,"height":1,"opacity":9,"position":"bad","textColor":"bad"}}"##).unwrap();
+        let mixed = mixed.validated();
+        assert!(mixed.has_popup() && mixed.has_edge());
+        assert_eq!(mixed.popup.width, 1200);
+        assert_eq!(mixed.popup.height, 120);
+        assert_eq!(mixed.popup.opacity, 1.0);
+        assert_eq!(mixed.popup.position, "bottom-right");
+        assert_eq!(mixed.popup.text_color, "#32353b");
+    }
+    #[test]
+    fn popup_positions_stay_in_each_monitors_work_area() {
+        let mut options = PopupOptions::default();
+        assert_eq!(options.geometry((-1920, 0, 1920, 1040), 1.0), (-372, 778, 360, 250));
+        options.position = "top-left".into();
+        assert_eq!(options.geometry((-1920, -500, 1920, 1040), 1.5), (-1902, -482, 540, 375));
+        options.position = "center".into();
+        assert_eq!(options.geometry((0, 0, 1000, 800), 1.0), (320, 275, 360, 250));
+        options.margin = 200;
+        for position in ["top-left", "top-right", "bottom-left", "bottom-right", "center"] {
+            options.position = position.into();
+            let (x, y, width, height) = options.geometry((0, 0, 200, 100), 2.0);
+            assert!(x >= 0 && y >= 0 && x as u32 + width <= 200 && y as u32 + height <= 100);
+            assert_eq!((width, height), (200, 100));
+        }
+    }
     #[test]
     fn dismissal_expires_and_can_be_resumed() {
         let now = Instant::now();

@@ -1,4 +1,4 @@
-param([switch]$ShowMain, [switch]$CloseMain)
+param([switch]$ShowMain, [switch]$CloseMain, [int]$TargetProcessId = 0)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -14,6 +14,7 @@ public static class SentinelWindows {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr handle, StringBuilder text, int size);
     [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr handle, int index);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint processId);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out Rect rect);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr handle, int mode);
@@ -31,7 +32,7 @@ public static class SentinelWindows {
     }
     public static IntPtr[] Find() {
         var handles = new List<IntPtr>();
-        EnumWindows((handle, _) => { if (Title(handle).StartsWith("Moyu Sentinel")) handles.Add(handle); return true; }, IntPtr.Zero);
+        EnumWindows((handle, _) => { if (Title(handle).StartsWith("Moyu Sentinel") || Title(handle) == "Moyu Automation Window Fixture") handles.Add(handle); return true; }, IntPtr.Zero);
         return handles.ToArray();
     }
 }
@@ -40,6 +41,9 @@ public static class SentinelWindows {
 [void][SentinelWindows]::SetThreadDpiAwarenessContext([IntPtr]::new(-4))
 $windows = @()
 foreach ($handle in [SentinelWindows]::Find()) {
+    [uint32]$windowProcessId = 0
+    [void][SentinelWindows]::GetWindowThreadProcessId($handle, [ref]$windowProcessId)
+    if ($TargetProcessId -and $windowProcessId -ne $TargetProcessId) { continue }
     $title = [SentinelWindows]::Title($handle)
     if ($CloseMain -and $title.StartsWith('Moyu Sentinel -')) {
         [void][SentinelWindows]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)

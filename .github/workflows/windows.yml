@@ -1,9 +1,12 @@
-name: Windows portable build
+name: Windows release
 on:
-  workflow_dispatch:
   push:
-    branches: [main, master]
-  pull_request:
+    tags:
+      - "v*"
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -11,12 +14,17 @@ permissions:
 jobs:
   portable:
     runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
+      - name: Verify release version and notes
+        run: node scripts/check-release.mjs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -28,3 +36,28 @@ jobs:
         with:
           name: MoyuSentinel-windows-x64
           path: release/MoyuSentinel-windows-x64.zip
+          if-no-files-found: error
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $releaseInfo = gh release view $env:RELEASE_TAG --json isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if (-not ($releaseInfo | ConvertFrom-Json).isDraft) {
+              throw "This version is already published. Use a new version tag."
+            }
+          } else {
+            gh release create $env:RELEASE_TAG --verify-tag --draft --title "Moyu Sentinel $env:RELEASE_TAG" --notes-file "docs/releases/$env:RELEASE_TAG.md"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          gh release upload $env:RELEASE_TAG release/MoyuSentinel-windows-x64.zip --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:RELEASE_TAG.Contains('-')) {
+            gh release edit $env:RELEASE_TAG --draft=false --prerelease --latest=false
+          } else {
+            gh release edit $env:RELEASE_TAG --draft=false --prerelease=false --latest
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

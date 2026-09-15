@@ -1,6 +1,6 @@
 {
   "name": "moyu-sentinel",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:glow": "node scripts/glow-smoke.mjs",
     "test:gallery": "node scripts/gallery-sharing-smoke.mjs",
+    "test:reminders": "node scripts/reminder-combinations-smoke.mjs && node scripts/image-captions-smoke.mjs && node scripts/reminder-layout-smoke.mjs",
     "assets": "node scripts/prepare-assets.mjs",
     "tauri": "tauri",
     "portable": "node scripts/build-portable.mjs"
